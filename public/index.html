@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Willow Creek Veterinary — Front Desk Agent</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐾</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">🐾</span>
+          <div class="brand-text">
+            <span class="brand-name">Willow Creek Veterinary</span>
+            <span class="brand-sub">Front-desk agent — live demo</span>
+          </div>
+        </div>
+        <div class="topbar-meta">
+          <span class="pulse-dot" id="statusDot"></span>
+          <span id="statusLabel">connecting…</span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel chat-panel">
+          <div class="panel-head">
+            <h1>Talk to the agent</h1>
+            <p>
+              Ask it to check in a patient, log a visit, look up a pet's history, or anything else
+              covered by the clinic's intake workflow.
+            </p>
+          </div>
+
+          <div class="chat-scroll" id="chatScroll">
+            <div class="msg msg-agent">
+              <div class="msg-avatar">🐾</div>
+              <div class="msg-bubble">
+                Hi, I'm the front-desk agent for Willow Creek Veterinary. I can register pets and
+                owners, log visits and treatment, and answer questions about patients on file.
+                What can I help with?
+              </div>
+            </div>
+          </div>
+
+          <form class="composer" id="composer">
+            <textarea
+              id="composerInput"
+              rows="1"
+              placeholder="e.g. Check in a walk-in: a cat named Milo, owner Dana Reyes, phone 555-0142…"
+              autocomplete="off"
+            ></textarea>
+            <button type="submit" id="sendBtn" aria-label="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M4 12L20 4L14 20L11 13L4 12Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </form>
+        </section>
+
+        <aside class="panel side-panel">
+          <div class="card">
+            <div class="card-head">
+              <h2>Bulk intake</h2>
+              <p>Upload a CSV or JSON file of pets &amp; owners. The agent applies the intake workflow to each record.</p>
+            </div>
+            <label class="dropzone" id="dropzone" for="fileInput">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 16V4M12 4L7 9M12 4L17 9M5 20H19"
+                  stroke="currentColor"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <span class="dropzone-text"><strong>Click to upload</strong> or drag a .csv / .json file</span>
+              <input type="file" id="fileInput" accept=".csv,.json,application/json,text/csv" hidden />
+            </label>
+            <div class="upload-status" id="uploadStatus"></div>
+          </div>
+
+          <div class="card records-card">
+            <div class="card-head">
+              <h2>Patients on file</h2>
+              <button class="ghost-btn" id="refreshBtn" type="button">Refresh</button>
+            </div>
+            <div class="records-list" id="patientsList">
+              <p class="empty-hint">Loading…</p>
+            </div>
+          </div>
+        </aside>
+      </main>
+
+      <footer class="footer">
+        <span>Built on the <a href="https://pi.dev" target="_blank" rel="noopener">pi</a> agent SDK · Express · vanilla JS</span>
+        <span>Demo data only — not a real clinic</span>
+      </footer>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

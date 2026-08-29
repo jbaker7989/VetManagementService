@@ -1,0 +1,24 @@
+[
+  {
+    "id": "p-0001",
+    "name": "Biscuit",
+    "species": "dog",
+    "breed": "Beagle (mixed)",
+    "sex": "female",
+    "neutered": true,
+    "dateOfBirth": null,
+    "approximateAge": "~4 years",
+    "weightKg": 12,
+    "distinguishingCharacteristics": "tan and white, floppy ears, microchip id DEMO-0001",
+    "owner": {
+      "name": "Alex Morgan",
+      "phone": "555-0100",
+      "email": "alex.morgan@example.com",
+      "address": null
+    },
+    "createdAt": "2026-08-01T15:00:00.000Z",
+    "updatedAt": "2026-08-01T15:00:00.000Z",
+    "isActive": true,
+    "deathDate": null
+  }
+]

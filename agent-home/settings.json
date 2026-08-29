@@ -1,0 +1,11 @@
+{
+  "$schema": "https://pi.dev/settings-schema.json",
+  "defaultProjectTrust": "always",
+  "steeringMode": "one-at-a-time",
+  "followUpMode": "one-at-a-time",
+  "transport": "auto",
+  "autoCompact": true,
+  "enableInstallTelemetry": false,
+  "thinkingLevel": "low",
+  "theme": "dark"
+}
