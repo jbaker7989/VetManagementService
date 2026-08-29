@@ -17,7 +17,51 @@
       "address": null
     },
     "createdAt": "2026-08-01T15:00:00.000Z",
-    "updatedAt": "2026-08-01T15:00:00.000Z",
+    "updatedAt": "2026-08-29T23:12:01.263Z",
+    "isActive": false,
+    "deathDate": "2026-08-28"
+  },
+  {
+    "id": "p-0002",
+    "name": "Lizzy",
+    "species": "alligator",
+    "breed": "American",
+    "sex": "female",
+    "neutered": false,
+    "dateOfBirth": "2012-01-01",
+    "approximateAge": null,
+    "weightKg": 94,
+    "distinguishingCharacteristics": null,
+    "owner": {
+      "name": "Mary Clark",
+      "phone": "123-555-0869",
+      "email": null,
+      "address": null
+    },
+    "createdAt": "2026-08-29T22:58:28.758Z",
+    "updatedAt": "2026-08-29T23:00:44.227Z",
+    "isActive": true,
+    "deathDate": null
+  },
+  {
+    "id": "p-0003",
+    "name": "Brian",
+    "species": "bear",
+    "breed": "Panda",
+    "sex": "male",
+    "neutered": false,
+    "dateOfBirth": "2025-01-01",
+    "approximateAge": null,
+    "weightKg": 139,
+    "distinguishingCharacteristics": null,
+    "owner": {
+      "name": "Michael Parsons",
+      "phone": "038-854-2945",
+      "email": "MichaelP@abc.com",
+      "address": null
+    },
+    "createdAt": "2026-08-29T23:17:58.386Z",
+    "updatedAt": "2026-08-29T23:17:58.386Z",
     "isActive": true,
     "deathDate": null
   }

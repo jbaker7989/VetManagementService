@@ -1,1 +1,46 @@
-[]
+[
+  {
+    "id": "v-0001",
+    "patientId": "p-0002",
+    "intakeType": "scheduled",
+    "scheduledAt": "2026-08-30T10:00:00",
+    "checkedInAt": "2026-08-29T23:00:44.226Z",
+    "assignedVeterinarian": "Mary Brooks",
+    "reasonForVisit": "Has not eaten in 2 weeks",
+    "diagnosis": null,
+    "status": "checked-in",
+    "treatmentLog": [],
+    "medications": [],
+    "costs": [],
+    "totalCost": 0,
+    "followUp": {
+      "scheduled": false,
+      "date": null,
+      "reason": null
+    },
+    "createdAt": "2026-08-29T23:00:44.226Z",
+    "updatedAt": "2026-08-29T23:00:44.226Z"
+  },
+  {
+    "id": "v-0002",
+    "patientId": "p-0003",
+    "intakeType": "walk-in",
+    "scheduledAt": null,
+    "checkedInAt": "2026-08-29T23:18:01.253Z",
+    "assignedVeterinarian": "Dolly Parton",
+    "reasonForVisit": "Not eating bamboo",
+    "diagnosis": null,
+    "status": "checked-in",
+    "treatmentLog": [],
+    "medications": [],
+    "costs": [],
+    "totalCost": 0,
+    "followUp": {
+      "scheduled": false,
+      "date": null,
+      "reason": null
+    },
+    "createdAt": "2026-08-29T23:18:01.253Z",
+    "updatedAt": "2026-08-29T23:18:01.253Z"
+  }
+]
