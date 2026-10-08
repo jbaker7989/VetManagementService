@@ -54,7 +54,10 @@ npm install
 npm start        # Express app at http://localhost:3000
 ```
 
-Requires a `KIMI_API_KEY` in `.env` for the LLM behind the chat/upload agent.
+Requires an `OPENROUTER_API_KEY` in `.env` for the LLM behind the chat/upload
+agent — it runs on MiniMax M2.7 (`openrouter`/`minimax/minimax-m2.7`) by default.
+Override the model with `VET_AGENT_PROVIDER` / `VET_AGENT_MODEL` if you want to
+point it at a different pi provider or model.
 To run the MCP server standalone instead (or in addition), see
 [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md).
 
