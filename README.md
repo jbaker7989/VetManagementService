@@ -54,9 +54,35 @@ npm install
 npm start        # Express app at http://localhost:3000
 ```
 
-Requires a `KIMI_API_KEY` in `.env` for the LLM behind the chat/upload agent.
+Requires an `OPENROUTER_API_KEY` in `.env` for the LLM behind the chat/upload
+agent — it runs on MiniMax M2.7 (`openrouter`/`minimax/minimax-m2.7`) by default.
+Override the model with `VET_AGENT_PROVIDER` / `VET_AGENT_MODEL` if you want to
+point it at a different pi provider or model.
 To run the MCP server standalone instead (or in addition), see
 [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md).
+
+## Product documentation
+
+A full product-management documentation suite lives under
+[`docs/product/`](docs/product/README.md). It is framed as a *productization
+plan* — treating this MVP as the baseline for a real AI-native veterinary
+product (working name **VetScribe**) — and is organized into three categories:
+
+- **Strategy & Vision** — [vision](docs/product/01-strategy-and-vision/vision.md),
+  [product strategy](docs/product/01-strategy-and-vision/product-strategy.md),
+  [market & competitive landscape](docs/product/01-strategy-and-vision/market-and-competitive-landscape.md),
+  and [personas & JTBD](docs/product/01-strategy-and-vision/personas-and-jtbd.md).
+- **Planning & Alignment** — [roadmap](docs/product/02-planning-and-alignment/roadmap.md),
+  the flagship [PRD](docs/product/02-planning-and-alignment/prd-agentic-intake-and-treatment.md),
+  [OKRs & success metrics](docs/product/02-planning-and-alignment/okrs-and-success-metrics.md),
+  and [stakeholders & RACI](docs/product/02-planning-and-alignment/stakeholders-and-raci.md).
+- **Execution & Launch** — [GTM & launch plan](docs/product/03-execution-and-launch/gtm-and-launch-plan.md),
+  [release & rollout plan](docs/product/03-execution-and-launch/release-and-rollout-plan.md),
+  and [risks, compliance & mitigations](docs/product/03-execution-and-launch/risks-compliance-and-mitigations.md).
+
+Every doc is grounded in the actual code, states its assumptions, and flags
+speculative content as `[ASSUMPTION]` / `[OPEN QUESTION]` rather than asserting
+it as fact. Start at the [documentation index](docs/product/README.md).
 
 ## About the author
 
