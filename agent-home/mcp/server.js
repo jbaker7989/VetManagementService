@@ -13,7 +13,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { createStore } from "../../lib/store.js";
 import { parseCsv } from "../../lib/csv.js";
-import { getOrCreateSession } from "../../lib/agentSession.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AGENT_DIR = path.resolve(__dirname, "..");
@@ -194,8 +193,7 @@ server.registerTool(
     description:
       "Create/update patient records in bulk from already-structured CSV or JSON text (e.g. a spreadsheet export). " +
       "Each row/object is written via upsert_patient as-is — no LLM judgement is applied, so rows must already use " +
-      "the patient field names from brain.md (name, species, breed, sex, owner.name, owner.phone, etc.). " +
-      "For loosely-formatted or ambiguous data, use vet_agent_chat instead so a human-in-the-loop model can interpret it.",
+      "the patient field names from brain.md (name, species, breed, sex, owner.name, owner.phone, etc.).",
     inputSchema: {
       filename: z.string().describe("Original filename, used only to guess CSV vs JSON").optional(),
       content: z.string().describe("Raw CSV or JSON text content"),
@@ -221,43 +219,6 @@ server.registerTool(
         results.push({ id: patient.id, name: patient.name });
       }
       return textResult({ count: results.length, patients: results });
-    } catch (err) {
-      return errorResult(err);
-    }
-  },
-);
-
-server.registerTool(
-  "vet_agent_chat",
-  {
-    title: "Ask the Vet Clinic Agent",
-    description:
-      "Hand a natural-language instruction to the clinic's pi-coding-agent, which can call list_patients, " +
-      "find_patient, upsert_patient, list_visits, and upsert_visit on your behalf and follows the clinic's " +
-      "ground rules (never guesses a diagnosis/dosage, asks for missing required fields). Use this for loosely " +
-      "specified requests ('check in Bella for a walk-in, ear infection') instead of calling the CRUD tools " +
-      "directly. Requires KIMI_API_KEY to be set in the environment.",
-    inputSchema: {
-      message: z.string().describe("Natural-language instruction or question for the clinic agent"),
-      sessionId: z
-        .string()
-        .describe("Reuse an existing conversation by id to keep context across calls; omit to start a new one")
-        .optional(),
-    },
-  },
-  async ({ message, sessionId }) => {
-    try {
-      const id = sessionId || `mcp-${Date.now()}`;
-      const session = await getOrCreateSession(id);
-      let text = "";
-      const unsubscribe = session.subscribe((event) => {
-        if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-          text += event.assistantMessageEvent.delta;
-        }
-      });
-      await session.prompt(message);
-      unsubscribe();
-      return { content: [{ type: "text", text }, { type: "text", text: `\n\n(sessionId: ${id})` }] };
     } catch (err) {
       return errorResult(err);
     }

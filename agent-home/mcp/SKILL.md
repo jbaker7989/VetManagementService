@@ -15,8 +15,10 @@ is no separate database and no HTTP hop.
 
 - A **local stdio** MCP server: an MCP client launches it as a subprocess and
   talks to it over stdin/stdout. It is not a network service and has no
-  authentication — do not wrap it in an HTTP/SSE transport without adding auth
-  first, since its write tools have no access control of their own.
+  authentication, and it is opt-in: nothing starts it unless you add it to an
+  MCP client's config. It deliberately exposes no free-form chat tool, only the
+  deterministic tools below. Do not wrap it in an HTTP/SSE transport without
+  adding auth first, since its write tools have no access control of their own.
 - Independent of `server.js` (the Express app) and `npm start` — it can run
   with or without the web UI running, since both go through the same
   `lib/store.js`.
@@ -31,7 +33,6 @@ is no separate database and no HTTP hop.
 | `list_visits` | List all visits, optionally filtered by `patientId`. |
 | `upsert_visit` | Create (omit `id`) or update (pass `id`) a visit. `treatmentLog`/`medications` entries are appended; `costs` replaces the list and `totalCost` is recomputed. |
 | `bulk_intake` | Create/update many patients at once from raw CSV or JSON text. Rows are written as-is via `upsert_patient` — no interpretation, so field names must already match the schema below. |
-| `vet_agent_chat` | Hand a natural-language instruction to the clinic's pi-coding-agent (the same one behind `/api/chat`), which calls the CRUD tools above on your behalf. Use for loosely-specified requests instead of calling tools directly. Requires `KIMI_API_KEY`. |
 
 The `upsert_patient` and `upsert_visit` field names, enums, and the append/replace
 semantics for visit sub-lists come straight from the schemas and workflows in
@@ -42,8 +43,6 @@ the schema here.
 
 - Node 24 (see `package.json`'s `engines`).
 - `npm install` in the repo root (adds `@modelcontextprotocol/sdk` and `zod`).
-- `KIMI_API_KEY` set in `.env` at the repo root — only needed for `vet_agent_chat`;
-  the five CRUD tools and `bulk_intake` work without it.
 
 ## Running it
 
@@ -84,9 +83,5 @@ Add an entry to `claude_desktop_config.json`'s `mcpServers`:
 - `upsert_patient` / `upsert_visit` / `bulk_intake` apply exactly what's passed
   — no ground-rule checking (e.g. "never guess a diagnosis"). That judgement is
   the caller's responsibility for these tools.
-- `vet_agent_chat` runs through the same pi-coding-agent as the Express app, so
-  it follows `brain.md`'s ground rules: it won't invent a diagnosis, dosage, or
-  required field, and never deletes records (pets are marked `isActive: false`
-  instead).
 - IDs are stable and never reused, even for inactive/deceased patients — see
   `brain.md`.

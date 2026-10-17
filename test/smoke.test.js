@@ -17,7 +17,7 @@ test("POST /api/chat streams the stub session response", async (t) => {
 
   const response = await fetch(`${app.url}/api/chat`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
     body: JSON.stringify({ sessionId: "smoke-session", message: "Hi" }),
   });
   const events = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));

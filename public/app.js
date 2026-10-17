@@ -72,7 +72,7 @@ function settleToolBadge(el, isError) {
 async function streamRequest(url, body, { onText, onToolStart, onToolEnd, onDone, onError }) {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
     body: JSON.stringify(body),
   });
 

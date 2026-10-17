@@ -12,15 +12,15 @@ Story definitions and acceptance criteria: [prompt-injection-no-login-feature-an
 | # | Story | Priority | Phase | Stage |
 |---|---|---|---|---|
 | 0 | Test harness and CI workflow | P0 | 0 | Completed |
-| 1 | Restrict network exposure by default | P0 | 1 | In Progress |
-| 2 | Origin / CSRF / DNS-rebinding protection | P0 | 1 | In Progress |
-| 3 | Remove blanket project trust | P0 | 1 | In Progress |
-| 4 | Remove MCP `vet_agent_chat` | P0 | 1 | In Progress |
-| 5 | Validate and delimit uploaded data | P0 | 2 | New |
-| 6 | Deterministic bulk intake | P0 | 2 | New |
-| 7 | Server-enforced approval gate | P0 | 2 | New |
-| 8 | Least-privilege tools per context | P0 | 2 | New |
-| 9 | Always-on PII redaction | P0 | 2 | New |
+| 1 | Restrict network exposure by default | P0 | 1 | Completed |
+| 2 | Origin / CSRF / DNS-rebinding protection | P0 | 1 | Completed |
+| 3 | Remove blanket project trust | P0 | 1 | Completed |
+| 4 | Remove MCP `vet_agent_chat` | P0 | 1 | Completed |
+| 5 | Validate and delimit uploaded data | P0 | 2 | In Progress |
+| 6 | Deterministic bulk intake | P0 | 2 | In Progress |
+| 7 | Server-enforced approval gate | P0 | 2 | In Progress |
+| 8 | Least-privilege tools per context | P0 | 2 | In Progress |
+| 9 | Always-on PII redaction | P0 | 2 | In Progress |
 | 10 | Stored data and tool output untrusted | P1 | 3 | New |
 | 11 | Filename and upload size limits | P1 | 3 | New |
 | 12 | Output filtering for exfiltration | P1 | 3 | New |
@@ -36,3 +36,4 @@ Story definitions and acceptance criteria: [prompt-injection-no-login-feature-an
 |---|---|
 | 2026-10-16 | Board created; all stories New. |
 | 2026-10-16 | Story 0 Completed (2 smoke tests pass). Stories 1-4 moved New → Development Ready → In Progress. |
+| 2026-10-16 | Stories 1-4 moved In Progress → QA (8 tests written, 3 stable runs) → Completed. Carried forward: Story 4 criterion "MCP tools share validation, redaction and logging with HTTP" is delivered by Stories 5, 9 and 15 and must be verified there. Stories 5-9 moved New → Development Ready → In Progress. |

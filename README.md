@@ -34,9 +34,9 @@ programmatic/AI clients) an MCP server exposing the same operations directly.
   Records are never deleted, only marked inactive.
 - **MCP server** (`agent-home/mcp/server.js`) — a local stdio
   [Model Context Protocol](https://modelcontextprotocol.io) server exposing
-  the same CRUD tools, plus bulk intake and a natural-language tool, directly
-  to external MCP clients like Claude Desktop — independent of the Express
-  app, backed by the same JSON store. See
+  the same CRUD tools, plus bulk intake, directly to external MCP clients
+  like Claude Desktop (opt-in; it exposes no chat tool) — independent of the
+  Express app, backed by the same JSON store. See
   [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md) for setup and tool
   docs.
 
@@ -51,12 +51,33 @@ readability over production scale.
 
 ```bash
 npm install
-npm start        # Express app at http://localhost:3000
+npm start        # Express app at http://127.0.0.1:3000
 ```
 
 Requires a `KIMI_API_KEY` in `.env` for the LLM behind the chat/upload agent.
 To run the MCP server standalone instead (or in addition), see
 [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md).
+
+## Network exposure and deployment
+
+The app has no login, so reachability is the access control. It binds to
+`127.0.0.1` by default; set `HOST` to bind a specific LAN address. Startup
+refuses a wildcard or public bind unless `ALLOW_PUBLIC_BIND=true`, and refuses
+to start if `agent-home/settings.json` sets `defaultProjectTrust` to `"always"`.
+
+Requests must carry an allowed `Host` header (loopback, `HOST`, or any name in
+the comma-separated `ALLOWED_HOSTS`), cross-origin `Origin`/`Referer` values are
+rejected with `403`, and `POST` routes require `X-Requested-With: vet-agent`.
+
+Supported deployments:
+
+- **Localhost** (default) — one machine, one user.
+- **LAN / VPN** — set `HOST` to the machine's private address.
+- **Reverse proxy** — bind to loopback, restrict access at the proxy with an IP
+  allowlist or basic auth, and list the proxy's hostname in `ALLOWED_HOSTS`.
+
+Exposing the app to the public internet with patient data (PHI) is **not
+supported**.
 
 ## Testing
 

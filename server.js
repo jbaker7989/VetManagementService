@@ -6,11 +6,18 @@ import express from "express";
 
 import { getOrCreateSession, store } from "./lib/agentSession.js";
 import { parseCsv } from "./lib/csv.js";
+import { createRequestGuard, defaultAllowedHosts } from "./lib/requestGuard.js";
+import { assertSafeAgentSettings, resolveListenHost } from "./lib/startupChecks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export function createApp({ dataStore = store, getSession = getOrCreateSession } = {}) {
+export function createApp({
+  dataStore = store,
+  getSession = getOrCreateSession,
+  allowedHosts = defaultAllowedHosts(),
+} = {}) {
   const app = express();
 
+  app.use(createRequestGuard({ allowedHosts }));
   app.use(express.json({ limit: "5mb" }));
   app.use(express.static(path.join(__dirname, "public")));
 
@@ -146,8 +153,10 @@ export function createApp({ dataStore = store, getSession = getOrCreateSession }
 
 export function start() {
   const port = process.env.PORT || 3000;
-  return createApp().listen(port, () => {
-    console.log(`Vet clinic agent front end running at http://localhost:${port}`);
+  const host = resolveListenHost();
+  assertSafeAgentSettings();
+  return createApp().listen(port, host, () => {
+    console.log(`Vet clinic agent front end running at http://${host}:${port}`);
   });
 }
 
