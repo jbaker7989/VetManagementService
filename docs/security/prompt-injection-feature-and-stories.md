@@ -1,7 +1,7 @@
 # Feature: Prompt-Injection Hardening for the Vet Agent
 
 **Feature ID:** SEC-001  
-**Status:** Proposed  
+**Status:** Superseded by SEC-002 (no-login design)  
 **Priority:** P0 — Blocking release  
 **Owner:** Security / Platform Engineering  
 **Stakeholders:** Product, Engineering, Compliance, Clinic Operations

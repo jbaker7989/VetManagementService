@@ -116,6 +116,32 @@ supported**.
   approvals and injection phrases. Retention and rotation are up to the
   operator (e.g. your process manager or log shipper).
 
+## Backups and recovery
+
+Before every change to `patients.json` or `visits.json` (approved chat or intake
+changes, confirmed uploads and MCP writes alike) the store snapshots both files,
+and the running server also snapshots hourly if anything changed. Snapshots and
+an append-only change log (`changes.jsonl`: source, session id, time, record,
+before/after) live in `agent-home/memory/backups/`, which is git-ignored.
+`BACKUP_MAX_SNAPSHOTS` (default 100) caps how many snapshots are kept, oldest
+pruned first; `BACKUP_MAX_CHANGES` (default 5000) rotates the change log once it
+holds that many entries, keeping one older generation (`changes.1.jsonl`);
+`BACKUP_INTERVAL_MS` (default 3600000) sets the scheduled interval.
+Data files are written to a temp file and renamed, so a crash cannot leave a
+half-written file.
+
+To recover, **stop the server first**, then use the admin script (not available
+over HTTP). Each restore or revert saves a safety snapshot of the current state
+first, so it can itself be undone:
+
+```bash
+npm run restore -- list-snapshots          # id, time, trigger, record counts
+npm run restore -- list-changes            # id, time, source, session, record
+npm run restore -- restore <snapshot-id>   # replace both data files from a snapshot
+npm run restore -- revert <change-id>      # undo one change; refuses if the record
+                                           # changed since, unless --force is added
+```
+
 ## Testing
 
 Run `npm test` with Node.js 24 to execute the built-in Node test suite.

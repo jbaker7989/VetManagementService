@@ -9,7 +9,7 @@ import { findInstructionLike } from "./lib/injectionDetector.js";
 import { buildTextIntakePrompt, commitIntake, MAX_UPLOAD_BYTES, parseUpload, planIntake, previewIntake, sanitizeFilename } from "./lib/intake.js";
 import { summarizePatient } from "./lib/modelViews.js";
 import { createStreamScrubber } from "./lib/outputFilter.js";
-import { createPendingIntakes } from "./lib/pendingIntakes.js";
+import { createPendingStore } from "./lib/pendingStore.js";
 import { createRateLimiter } from "./lib/rateLimiter.js";
 import { createRequestGuard, defaultAllowedHosts } from "./lib/requestGuard.js";
 import { createSessionRegistry } from "./lib/sessionRegistry.js";
@@ -37,7 +37,7 @@ export function createApp({
   dataStore = store,
   getSession = getOrCreateSession,
   allowedHosts = defaultAllowedHosts(),
-  pendingIntakes = createPendingIntakes(),
+  pendingIntakes = createPendingStore(),
   approvals = approvalGate,
   sessions = createSessionRegistry({ idleMs: IDLE_TTL_MS }),
   audit = createAudit(),
@@ -243,7 +243,7 @@ export function createApp({
 
     try {
       send({ type: "session", sessionId });
-      send({ type: "summary", ...(await commitIntake(dataStore, plan)) });
+      send({ type: "summary", ...(await commitIntake(dataStore, plan, { source: "upload-confirm", sessionId })) });
       send({ type: "done" });
     } catch (err) {
       send({ type: "error", message: err.message });
@@ -260,10 +260,11 @@ export function createApp({
   return app;
 }
 
-export function start() {
+export function start({ snapshotIntervalMs = Number(process.env.BACKUP_INTERVAL_MS) || 60 * 60 * 1000 } = {}) {
   const port = process.env.PORT || 3000;
   const host = resolveListenHost();
   assertSafeAgentSettings();
+  setInterval(() => store.snapshot().catch((err) => console.error(`backup: scheduled snapshot failed: ${err.message}`)), snapshotIntervalMs).unref();
   return createApp().listen(port, host, () => {
     console.log(`Vet clinic agent front end running at http://${host}:${port}`);
   });

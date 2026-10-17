@@ -13,7 +13,7 @@ import { createVetTools } from "../lib/tools.js";
 import { createTempStore, issueSession, startTestApp } from "./helpers/app.js";
 import { once } from "node:events";
 import { createApp } from "../server.js";
-import { createPendingIntakes } from "../lib/pendingIntakes.js";
+import { createPendingStore } from "../lib/pendingStore.js";
 
 const headers = { "Content-Type": "application/json", "X-Requested-With": "vet-agent" };
 
@@ -362,7 +362,7 @@ test("tool-call cap aborts an overactive session and emits an error stream event
 });
 
 test("sessions cannot access other sessions' actions or intakes and chat enforces message length", async (t) => {
-  const pendingIntakes = createPendingIntakes();
+  const pendingIntakes = createPendingStore();
   const backing = await createTempStore();
   const realGate = createApprovalGate({ store: backing.store, timeoutMs: 3000 });
   const app = await launch({

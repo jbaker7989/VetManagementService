@@ -91,7 +91,7 @@ server.registerTool(
       "Follow the clinic's data model in brain.md: ask for any required field you don't have instead of inventing one.",
     inputSchema: patientFields,
   },
-  async (params) => run("upsert_patient", params, async () => redactPatient(await store.upsertPatient(params))),
+  async (params) => run("upsert_patient", params, async () => redactPatient(await store.upsertPatient(params, { source: "mcp", sessionId }))),
 );
 
 server.registerTool(
@@ -116,7 +116,7 @@ server.registerTool(
       "costs, if passed, REPLACES the full cost list and totalCost is recomputed automatically.",
     inputSchema: visitFields,
   },
-  async (params) => run("upsert_visit", params, () => store.upsertVisit(params)),
+  async (params) => run("upsert_visit", params, () => store.upsertVisit(params, { source: "mcp", sessionId })),
 );
 
 server.registerTool(
@@ -139,7 +139,7 @@ server.registerTool(
       if (!upload.records) throw new Error("Content is not structured CSV or JSON patient data");
       if (upload.records.length === 0) throw new Error("No records found in file");
 
-      return commitIntake(store, await planIntake(store, upload.records));
+      return commitIntake(store, await planIntake(store, upload.records), { source: "mcp", sessionId });
     });
   },
 );

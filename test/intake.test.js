@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parseCsv } from "../lib/csv.js";
 import { buildTextIntakePrompt, commitIntake, parseUpload, planIntake, stripControlChars } from "../lib/intake.js";
-import { createPendingIntakes } from "../lib/pendingIntakes.js";
+import { createPendingStore } from "../lib/pendingStore.js";
 import { PatientRecord } from "../lib/schema.js";
 import { createTempStore, startTestApp } from "./helpers/app.js";
 
@@ -161,7 +161,7 @@ test("structured upload previews without prompting or writing, then confirmation
 });
 
 test("confirmation rejects wrong-session, unknown, expired, and replayed pending IDs without extra writes", async (t) => {
-  const app = await startTestApp({ pendingIntakes: createPendingIntakes({ ttlMs: 0 }) });
+  const app = await startTestApp({ pendingIntakes: createPendingStore({ ttlMs: 0 }) });
   t.after(() => app.close());
   const expiredPreview = await upload(app, "name,species\nMiso,cat\n");
   const expired = await confirm(app, app.sessionId, expiredPreview.events[2].pendingId);
