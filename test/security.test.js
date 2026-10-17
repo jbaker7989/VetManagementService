@@ -61,7 +61,7 @@ test("agent settings reject blanket project trust and repository settings pass",
 test("request guard rejects disallowed hosts and untrusted API origins", async (t) => {
   const app = await startTestApp();
   t.after(() => app.close());
-  const body = JSON.stringify({ message: "hello" });
+  const body = JSON.stringify({ message: "hello", sessionId: app.sessionId });
   const post = {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },

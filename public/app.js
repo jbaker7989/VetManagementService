@@ -29,6 +29,16 @@ function persistSession(id) {
   localStorage.setItem("vetAgentSessionId", id);
 }
 
+// The server issues every session id; a stored one is resumed only if it is still valid.
+async function ensureSession() {
+  const res = await fetch("/api/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
+    body: JSON.stringify({ sessionId }),
+  });
+  persistSession((await res.json()).sessionId);
+}
+
 function scrollToBottom() {
   chatScroll.scrollTop = chatScroll.scrollHeight;
 }
@@ -52,7 +62,10 @@ function addToolBadge(toolName) {
   const el = document.createElement("div");
   el.className = "msg-tool";
   el.dataset.tool = toolName;
-  el.innerHTML = `<span class="typing-dots"><span></span><span></span><span></span></span> ${toolLabel(toolName)}`;
+  const dots = document.createElement("span");
+  dots.className = "typing-dots";
+  dots.append(document.createElement("span"), document.createElement("span"), document.createElement("span"));
+  el.append(dots, ` ${toolLabel(toolName)}`);
   chatScroll.appendChild(el);
   scrollToBottom();
   return el;
@@ -74,16 +87,26 @@ function settleToolBadge(el, isError) {
   el.classList.toggle("error", !!isError);
 }
 
+async function describeFailure(res) {
+  if (res.status === 429) return `Too many requests. Try again in ${res.headers.get("Retry-After") || "a few"} seconds.`;
+  const text = await res.text().catch(() => "");
+  try {
+    return JSON.parse(text).error;
+  } catch {
+    return text || `Request failed (${res.status})`;
+  }
+}
+
 async function streamRequest(url, body, { onText, onToolStart, onToolEnd, onDone, onError, onEvent }) {
+  await ensureSession();
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, sessionId }),
   });
 
   if (!res.ok || !res.body) {
-    const text = await res.text().catch(() => "");
-    onError(text || `Request failed (${res.status})`);
+    onError(await describeFailure(res));
     return;
   }
 
@@ -129,7 +152,7 @@ async function sendMessage(text) {
 
   await streamRequest(
     "/api/chat",
-    { sessionId, message: text },
+    { message: text },
     {
       onText: (delta) => {
         if (!bubble) bubble = addMessage("agent", "");
@@ -249,7 +272,7 @@ async function handleFile(file) {
 
   await streamRequest(
     "/api/upload",
-    { sessionId, filename: file.name, content },
+    { filename: file.name, content },
     {
       onText: (delta) => {
         summary += delta;
@@ -284,7 +307,7 @@ confirmBtn.addEventListener("click", async () => {
 
   await streamRequest(
     "/api/upload/confirm",
-    { sessionId, pendingId },
+    { pendingId },
     {
       onText: () => {},
       onToolStart: () => {},
@@ -341,7 +364,7 @@ function renderPatients(patients) {
       row.innerHTML = `
         <div class="avatar">${speciesEmoji(p.species)}</div>
         <div class="info">
-          <div class="name">${escapeHtml(p.name)}</div>
+          <div class="name">${escapeHtml(p.name)}${p.flagged ? ' <span class="risk-flag" title="Contains text that looks like instructions to the AI agent. Review this record.">⚠ review</span>' : ""}</div>
           <div class="meta">${escapeHtml(p.species || "")} · ${escapeHtml(p.ownerFirstName || "no owner on file")}</div>
           <div class="contact" hidden></div>
         </div>
@@ -424,7 +447,9 @@ let lastPendingKey = "";
 async function pollPendingActions() {
   if (!sessionId) return;
   try {
-    const actions = await (await fetch(`/api/actions?sessionId=${encodeURIComponent(sessionId)}`)).json();
+    const res = await fetch(`/api/actions?sessionId=${encodeURIComponent(sessionId)}`);
+    if (!res.ok) return;
+    const actions = await res.json();
     // Skip identical lists so a card isn't rebuilt under the user's cursor.
     const key = actions.map((a) => a.id).join();
     if (key === lastPendingKey) return;
@@ -441,3 +466,4 @@ setInterval(pollPendingActions, 1500);
 
 setStatus("ready", "ready");
 refreshPatients();
+ensureSession().catch(() => {});

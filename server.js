@@ -1,14 +1,18 @@
 import "dotenv/config";
 import path from "node:path";
-import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
 
-import { approvalGate, getOrCreateSession, store } from "./lib/agentSession.js";
-import { buildTextIntakePrompt, commitIntake, parseUpload, planIntake, previewIntake } from "./lib/intake.js";
+import { approvalGate, getOrCreateSession, IDLE_TTL_MS, store } from "./lib/agentSession.js";
+import { createAudit } from "./lib/audit.js";
+import { findInstructionLike } from "./lib/injectionDetector.js";
+import { buildTextIntakePrompt, commitIntake, MAX_UPLOAD_BYTES, parseUpload, planIntake, previewIntake, sanitizeFilename } from "./lib/intake.js";
 import { summarizePatient } from "./lib/modelViews.js";
+import { createStreamScrubber } from "./lib/outputFilter.js";
 import { createPendingIntakes } from "./lib/pendingIntakes.js";
+import { createRateLimiter } from "./lib/rateLimiter.js";
 import { createRequestGuard, defaultAllowedHosts } from "./lib/requestGuard.js";
+import { createSessionRegistry } from "./lib/sessionRegistry.js";
 import { assertSafeAgentSettings, resolveListenHost } from "./lib/startupChecks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,24 +23,86 @@ function openStream(res, sessionId) {
   return (obj) => res.write(JSON.stringify(obj) + "\n");
 }
 
+export const DEFAULT_LIMITS = {
+  maxMessageChars: 4000,
+  maxToolCallsPerTurn: 25,
+  chatPerWindow: 20,
+  uploadPerWindow: 10,
+  rateWindowMs: 60 * 1000,
+};
+
+const flagged = (record) => findInstructionLike(record).length > 0;
+
 export function createApp({
   dataStore = store,
   getSession = getOrCreateSession,
   allowedHosts = defaultAllowedHosts(),
   pendingIntakes = createPendingIntakes(),
   approvals = approvalGate,
+  sessions = createSessionRegistry({ idleMs: IDLE_TTL_MS }),
+  audit = createAudit(),
+  limits = DEFAULT_LIMITS,
 } = {}) {
   const app = express();
 
+  const rateLimit = (limit) => createRateLimiter({ limit, windowMs: limits.rateWindowMs });
+  const chatLimiter = rateLimit(limits.chatPerWindow);
+  const uploadLimiter = rateLimit(limits.uploadPerWindow);
+
+  // check is sessions.touch (refreshes the idle timer) or sessions.has.
+  const requireSession = (check) => (req, res, next) => {
+    if (check(req.body?.sessionId ?? req.query.sessionId)) return next();
+    res.status(403).json({ error: "Unknown or expired session; request one from POST /api/session" });
+  };
+  const activeSession = requireSession(sessions.touch);
+  const knownSession = requireSession(sessions.has);
+
+  // Streams one agent turn: scrubs text, audits tool calls, and aborts the
+  // turn once it uses more tools than allowed.
+  async function streamTurn(session, prompt, send, audited) {
+    const scrubber = createStreamScrubber();
+    const sendText = (delta) => delta && send({ type: "text", delta });
+    let toolCalls = 0;
+
+    const unsubscribe = session.subscribe((event) => {
+      if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+        sendText(scrubber.push(event.assistantMessageEvent.delta));
+      } else if (event.type === "tool_execution_start") {
+        audit.toolCall({ tool: event.toolName, args: event.args, ...audited });
+        send({ type: "tool_start", toolName: event.toolName });
+        if (++toolCalls === limits.maxToolCallsPerTurn + 1) session.abort();
+      } else if (event.type === "tool_execution_end") {
+        send({ type: "tool_end", toolName: event.toolName, isError: event.isError });
+      }
+    });
+
+    const tooManyToolCalls = () => toolCalls > limits.maxToolCallsPerTurn;
+    try {
+      await session.prompt(prompt);
+    } catch (err) {
+      if (!tooManyToolCalls()) throw err;
+    } finally {
+      unsubscribe();
+    }
+    sendText(scrubber.flush());
+    if (tooManyToolCalls()) throw new Error(`Stopped: the agent tried to use more than ${limits.maxToolCallsPerTurn} tools in one turn`);
+  }
+
   app.use(createRequestGuard({ allowedHosts }));
-  app.use(express.json({ limit: "5mb" }));
+  app.use(express.json({ limit: MAX_UPLOAD_BYTES }));
   app.use(express.static(path.join(__dirname, "public")));
+
+  // The only source of session ids. Passing a still-valid id resumes it.
+  app.post("/api/session", (req, res) => {
+    const requested = req.body?.sessionId;
+    res.json({ sessionId: sessions.touch(requested) ? requested : sessions.issue() });
+  });
 
   // --- Read-only data views (bypass the agent; safe direct reads for the UI) ---
 
   app.get("/api/patients", async (_req, res) => {
     try {
-      res.json((await dataStore.listPatients()).map(summarizePatient));
+      res.json((await dataStore.listPatients()).map((p) => ({ ...summarizePatient(p), flagged: flagged(p) })));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -61,7 +127,7 @@ export function createApp({
     try {
       const visits = await dataStore.listVisits();
       const filtered = req.query.patientId ? visits.filter((v) => v.patientId === req.query.patientId) : visits;
-      res.json(filtered);
+      res.json(filtered.map((v) => ({ ...v, flagged: flagged(v) })));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -69,33 +135,26 @@ export function createApp({
 
   // --- Chat: streams NDJSON events from the pi agent session ---
 
-  app.post("/api/chat", async (req, res) => {
-    const { message } = req.body || {};
-    const sessionId = req.body?.sessionId || crypto.randomUUID();
+  app.post("/api/chat", chatLimiter, activeSession, async (req, res) => {
+    const { message, sessionId } = req.body;
 
     if (typeof message !== "string" || !message.trim()) {
       res.status(400).json({ error: "message is required" });
       return;
     }
+    if (message.length > limits.maxMessageChars) {
+      res.status(413).json({ error: `message is too long (limit ${limits.maxMessageChars} characters)` });
+      return;
+    }
 
     const send = openStream(res, sessionId);
+    const audited = { sessionId, ip: req.ip, source: "chat" };
+    audit.screenText({ text: message, ...audited });
 
     try {
       const session = await getSession(sessionId, "chat");
-
-      const unsubscribe = session.subscribe((event) => {
-        if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-          send({ type: "text", delta: event.assistantMessageEvent.delta });
-        } else if (event.type === "tool_execution_start") {
-          send({ type: "tool_start", toolName: event.toolName });
-        } else if (event.type === "tool_execution_end") {
-          send({ type: "tool_end", toolName: event.toolName, isError: event.isError });
-        }
-      });
-
       send({ type: "session", sessionId });
-      await session.prompt(message);
-      unsubscribe();
+      await streamTurn(session, message, send, audited);
       send({ type: "done" });
     } catch (err) {
       send({ type: "error", message: err.message });
@@ -106,16 +165,16 @@ export function createApp({
 
   // --- Approval gate: changes the agent proposes wait here until staff decide ---
 
-  app.get("/api/actions", (req, res) => {
-    const { sessionId } = req.query;
-    res.json(typeof sessionId === "string" ? approvals.list(sessionId) : []);
+  app.get("/api/actions", knownSession, (req, res) => {
+    res.json(approvals.list(req.query.sessionId));
   });
 
   for (const decision of ["approve", "reject"]) {
-    app.post(`/api/actions/:id/${decision}`, async (req, res) => {
-      const { sessionId } = req.body || {};
+    app.post(`/api/actions/:id/${decision}`, knownSession, async (req, res) => {
+      const { sessionId } = req.body;
       try {
-        const found = typeof sessionId === "string" && (await approvals[decision](sessionId, req.params.id));
+        const found = await approvals[decision](sessionId, req.params.id);
+        if (found && decision === "reject") audit.approvalRejected({ sessionId, ip: req.ip, actionId: req.params.id });
         if (found) res.json({ status: decision === "approve" ? "approved" : "rejected" });
         else res.status(404).json({ error: "No pending action found for this session (it may have expired)" });
       } catch (err) {
@@ -126,9 +185,9 @@ export function createApp({
 
   // --- Upload: structured CSV/JSON is validated and previewed, then written by code (no LLM) ---
 
-  app.post("/api/upload", async (req, res) => {
-    const { filename, content } = req.body || {};
-    const sessionId = req.body?.sessionId || crypto.randomUUID();
+  app.post("/api/upload", uploadLimiter, activeSession, async (req, res) => {
+    const { content, sessionId } = req.body;
+    const filename = sanitizeFilename(req.body.filename);
 
     if (typeof content !== "string" || !content.trim()) {
       res.status(400).json({ error: "content is required" });
@@ -159,17 +218,9 @@ export function createApp({
         send({ type: "preview", pendingId, ...previewIntake(plan) });
       } else {
         const session = await getSession(sessionId, "intake");
-        const unsubscribe = session.subscribe((event) => {
-          if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-            send({ type: "text", delta: event.assistantMessageEvent.delta });
-          } else if (event.type === "tool_execution_start") {
-            send({ type: "tool_start", toolName: event.toolName });
-          } else if (event.type === "tool_execution_end") {
-            send({ type: "tool_end", toolName: event.toolName, isError: event.isError });
-          }
-        });
-        await session.prompt(buildTextIntakePrompt(upload.text));
-        unsubscribe();
+        const audited = { sessionId, ip: req.ip, source: "intake" };
+        audit.screenText({ text: upload.text, ...audited });
+        await streamTurn(session, buildTextIntakePrompt(upload.text), send, audited);
       }
       send({ type: "done" });
     } catch (err) {
@@ -179,9 +230,9 @@ export function createApp({
     }
   });
 
-  app.post("/api/upload/confirm", async (req, res) => {
-    const { sessionId, pendingId } = req.body || {};
-    const plan = typeof sessionId === "string" && typeof pendingId === "string" ? pendingIntakes.take(sessionId, pendingId) : null;
+  app.post("/api/upload/confirm", knownSession, async (req, res) => {
+    const { sessionId, pendingId } = req.body;
+    const plan = typeof pendingId === "string" ? pendingIntakes.take(sessionId, pendingId) : null;
 
     if (!plan) {
       res.status(404).json({ error: "No pending intake found for this session (it may have expired)" });
@@ -199,6 +250,11 @@ export function createApp({
     } finally {
       res.end();
     }
+  });
+
+  app.use((err, _req, res, next) => {
+    if (res.headersSent) return next(err);
+    res.status(err.status ?? 500).json({ error: err.expose ? err.message : "Internal server error" });
   });
 
   return app;

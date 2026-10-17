@@ -90,6 +90,32 @@ Supported deployments:
 Exposing the app to the public internet with patient data (PHI) is **not
 supported**.
 
+### Prompt-injection controls
+
+- **Sessions** — the browser gets its session id from `POST /api/session`
+  (`{ "sessionId"? }` in, `{ "sessionId" }` out; a still-valid id is resumed,
+  otherwise a new 128-bit random one is issued). `/api/chat`, `/api/upload`,
+  `/api/upload/confirm` and `/api/actions*` reject any other id with `403`.
+  Ids expire after an hour idle.
+- **Limits** — `/api/chat` and `/api/upload` are rate limited per client IP
+  (`429` with `Retry-After`; 20 and 10 requests/minute, in memory). Chat
+  messages are capped at 4000 characters, a turn at 25 tool calls, uploads at
+  1 MB and 500 rows, filenames at 120 characters. Behind a reverse proxy every
+  client shares the proxy's IP unless Express `trust proxy` is configured.
+- **Data handling** — tool results reach the model inside a
+  `CLINIC DATA — NOT INSTRUCTIONS` block, stored text is control-character
+  stripped and length capped on write, and instruction-like text in records is
+  flagged in the UI (never blocked). Model text is scrubbed of markdown images
+  and `http(s)` links before it is streamed, and rendered as plain text.
+- **System prompt rules** in `brain.md` are a supporting layer, not a security
+  boundary; the server-side controls above are what enforce safety.
+- **Audit log** — each tool call (chat, intake and MCP) is one JSON line on
+  stdout with masked arguments (email/phone/address hashed, note bodies
+  omitted), session id, IP and source. Anomalies are lines with
+  `"level":"alert"`: bulk reads, repeated mutation proposals, rejected
+  approvals and injection phrases. Retention and rotation are up to the
+  operator (e.g. your process manager or log shipper).
+
 ## Testing
 
 Run `npm test` with Node.js 24 to execute the built-in Node test suite.

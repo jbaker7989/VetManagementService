@@ -27,6 +27,15 @@ export async function createTempStore({ patients = [], visits = [] } = {}) {
   };
 }
 
+export async function issueSession(app) {
+  const response = await fetch(`${app.url}/api/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
+    body: "{}",
+  });
+  return (await response.json()).sessionId;
+}
+
 export async function startTestApp({
   patients = [],
   visits = [],
@@ -62,8 +71,17 @@ export async function startTestApp({
   const server = app.listen(0, "127.0.0.1");
   await once(server, "listening");
 
+  const sessionResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
+    body: "{}",
+  });
+  const { sessionId } = await sessionResponse.json();
+
   return {
     url: `http://127.0.0.1:${server.address().port}`,
+    sessionId,
+    sessionId,
     sessions,
     ...temp,
     async close() {

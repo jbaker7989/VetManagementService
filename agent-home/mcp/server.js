@@ -7,13 +7,22 @@
 import "dotenv/config";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { createAudit } from "../../lib/audit.js";
 import { createStore } from "../../lib/store.js";
-import { commitIntake, parseUpload, planIntake } from "../../lib/intake.js";
-import { findPatientForModel, listPatientsForModel, listVisitsForModel, MAX_LIST_RESULTS, redactPatient } from "../../lib/modelViews.js";
+import { commitIntake, parseUpload, planIntake, sanitizeFilename } from "../../lib/intake.js";
+import {
+  findPatientForModel,
+  listPatientsForModel,
+  listVisitsForModel,
+  MAX_LIST_RESULTS,
+  redactPatient,
+  toDataBlock,
+} from "../../lib/modelViews.js";
 import { patientFields, visitFields } from "../../lib/schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,12 +35,25 @@ const store = createStore({
 
 const server = new McpServer({ name: "vet-clinic-mcp", version: "1.0.0" });
 
+const audit = createAudit();
+const sessionId = crypto.randomUUID(); // one stdio connection = one session
+
 function textResult(value) {
-  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+  return { content: [{ type: "text", text: toDataBlock(value) }] };
 }
 
 function errorResult(err) {
   return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
+}
+
+// Every tool runs through here so each call is audited the same way.
+async function run(tool, args, fn) {
+  audit.toolCall({ tool, args, sessionId, source: "mcp" });
+  try {
+    return textResult(await fn());
+  } catch (err) {
+    return errorResult(err);
+  }
 }
 
 server.registerTool(
@@ -41,13 +63,7 @@ server.registerTool(
     description: `List patient (pet) records on file: id, pet name, species and owner first name only, up to ${MAX_LIST_RESULTS}.`,
     inputSchema: {},
   },
-  async () => {
-    try {
-      return textResult(await listPatientsForModel(store));
-    } catch (err) {
-      return errorResult(err);
-    }
-  },
+  async () => run("list_patients", {}, () => listPatientsForModel(store)),
 );
 
 server.registerTool(
@@ -63,13 +79,7 @@ server.registerTool(
       ownerName: z.string().describe("Owner's name, to disambiguate").optional(),
     },
   },
-  async (params) => {
-    try {
-      return textResult(await findPatientForModel(store, params));
-    } catch (err) {
-      return errorResult(err);
-    }
-  },
+  async (params) => run("find_patient", params, () => findPatientForModel(store, params)),
 );
 
 server.registerTool(
@@ -81,13 +91,7 @@ server.registerTool(
       "Follow the clinic's data model in brain.md: ask for any required field you don't have instead of inventing one.",
     inputSchema: patientFields,
   },
-  async (params) => {
-    try {
-      return textResult(redactPatient(await store.upsertPatient(params)));
-    } catch (err) {
-      return errorResult(err);
-    }
-  },
+  async (params) => run("upsert_patient", params, async () => redactPatient(await store.upsertPatient(params))),
 );
 
 server.registerTool(
@@ -99,13 +103,7 @@ server.registerTool(
       patientId: z.string().describe("Only return visits for this patient id").optional(),
     },
   },
-  async (params) => {
-    try {
-      return textResult(await listVisitsForModel(store, params.patientId));
-    } catch (err) {
-      return errorResult(err);
-    }
-  },
+  async (params) => run("list_visits", params, () => listVisitsForModel(store, params.patientId)),
 );
 
 server.registerTool(
@@ -118,13 +116,7 @@ server.registerTool(
       "costs, if passed, REPLACES the full cost list and totalCost is recomputed automatically.",
     inputSchema: visitFields,
   },
-  async (params) => {
-    try {
-      return textResult(await store.upsertVisit(params));
-    } catch (err) {
-      return errorResult(err);
-    }
-  },
+  async (params) => run("upsert_visit", params, () => store.upsertVisit(params)),
 );
 
 server.registerTool(
@@ -141,15 +133,14 @@ server.registerTool(
     },
   },
   async ({ filename, content }) => {
-    try {
-      const upload = parseUpload(filename, content);
-      if (!upload.records) return errorResult(new Error("Content is not structured CSV or JSON patient data"));
-      if (upload.records.length === 0) return errorResult(new Error("No records found in file"));
+    const name = sanitizeFilename(filename);
+    return run("bulk_intake", { filename: name, content }, async () => {
+      const upload = parseUpload(name, content);
+      if (!upload.records) throw new Error("Content is not structured CSV or JSON patient data");
+      if (upload.records.length === 0) throw new Error("No records found in file");
 
-      return textResult(await commitIntake(store, await planIntake(store, upload.records)));
-    } catch (err) {
-      return errorResult(err);
-    }
+      return commitIntake(store, await planIntake(store, upload.records));
+    });
   },
 );
 

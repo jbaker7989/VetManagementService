@@ -21,14 +21,14 @@ Story definitions and acceptance criteria: [prompt-injection-no-login-feature-an
 | 7 | Server-enforced approval gate | P0 | 2 | Completed |
 | 8 | Least-privilege tools per context | P0 | 2 | Completed |
 | 9 | Always-on PII redaction | P0 | 2 | Completed |
-| 10 | Stored data and tool output untrusted | P1 | 3 | In Progress |
-| 11 | Filename and upload size limits | P1 | 3 | In Progress |
-| 12 | Output filtering for exfiltration | P1 | 3 | In Progress |
-| 13 | Rate limiting and server-issued sessions | P1 | 3 | In Progress |
-| 14 | Harden the system prompt | P1 | 3 | In Progress |
-| 15 | Audit logging and anomaly alerts | P1 | 3 | In Progress |
-| 16 | Backups, versioning, rollback | P1 | 4 | New |
-| 17 | Red-team and regression suite | P1 | 4 | New |
+| 10 | Stored data and tool output untrusted | P1 | 3 | Completed |
+| 11 | Filename and upload size limits | P1 | 3 | Completed |
+| 12 | Output filtering for exfiltration | P1 | 3 | Completed |
+| 13 | Rate limiting and server-issued sessions | P1 | 3 | Completed |
+| 14 | Harden the system prompt | P1 | 3 | Completed |
+| 15 | Audit logging and anomaly alerts | P1 | 3 | Completed |
+| 16 | Backups, versioning, rollback | P1 | 4 | In Progress |
+| 17 | Red-team and regression suite | P1 | 4 | In Progress |
 
 ## Log
 
@@ -39,3 +39,4 @@ Story definitions and acceptance criteria: [prompt-injection-no-login-feature-an
 | 2026-10-16 | Stories 1-4 moved In Progress → QA (8 tests written, 3 stable runs) → Completed. Carried forward: Story 4 criterion "MCP tools share validation, redaction and logging with HTTP" is delivered by Stories 5, 9 and 15 and must be verified there. Stories 5-9 moved New → Development Ready → In Progress. |
 | 2026-10-16 | Story 5 Completed (12 intake tests). Story 6 in QA: deterministic path verified; its LLM-fallback approval criterion depends on Story 7. Stories 7-9 Development Ready → In Progress. |
 | 2026-10-16 | Stories 7-9 QA complete (30 tests, stable 3x). QA flagged nested-contact redaction as a defect; rejected because the strict schema forbids such fields — test rewritten to schema-valid data. Story 6 Completed now that the LLM fallback is gated by Story 7. Stories 10-15 Development Ready → In Progress. |
+| 2026-10-16 | Stories 10-15 went In Progress → QA (two rounds; round 1 flagged incomplete coverage, 2 defects fixed: scrubber forms, audit value masking) → Completed (48 tests, stable 3x). Known, documented non-goals: zero-width/percent-encoded/bare www. text is inert in the escaped UI. Stories 16-17 Development Ready → In Progress. |
