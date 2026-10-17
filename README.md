@@ -17,7 +17,13 @@ programmatic/AI clients) an MCP server exposing the same operations directly.
 
 - **Express front end** (`server.js`, `public/`) — a vanilla JS/HTML/CSS chat
   UI and bulk-upload UI. Exposes:
-  - `GET /api/patients`, `GET /api/visits` — direct reads for the UI
+  - `GET /api/patients` (pet name, species, owner first name only), `GET /api/visits` — direct reads for the UI
+  - `GET /api/patients/:id/contact` — full owner contact details for one patient; the
+    only way to see them, logged by patient id, and never shown to the agent
+  - `GET /api/actions?sessionId=`, `POST /api/actions/:id/approve|reject` — the approval
+    gate: every change the agent proposes waits here for a staff click (the model
+    cannot call these). `APPROVAL_TIMEOUT_MS` (default 300000) sets how long a
+    proposal waits before it is cancelled; at most 5 can be pending per session
   - `POST /api/chat` — streams an NDJSON conversation with the clinic agent
   - `POST /api/upload` — validates a CSV/JSON file against the patient schema and
     returns a dry-run preview (no LLM); `POST /api/upload/confirm` commits it.
@@ -27,7 +33,10 @@ programmatic/AI clients) an MCP server exposing the same operations directly.
   [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
   session configured with **no filesystem or shell access** — only five typed
   tools (`lib/tools.js`): `list_patients`, `find_patient`, `upsert_patient`,
-  `list_visits`, `upsert_visit`. Domain rules (data schema, intake/treatment/
+  `list_visits`, `upsert_visit`. Chat sessions get all five; free-text upload
+  sessions get only the two `upsert_*` tools. Reads are redacted in code
+  (`lib/modelViews.js`) and writes are held for staff approval
+  (`lib/approvalGate.js`). The send-email and web-fetch skills are not wired up. Domain rules (data schema, intake/treatment/
   follow-up workflows, "never guess a diagnosis or dosage") live in
   [`agent-home/brain/brain.md`](agent-home/brain/brain.md), the single source
   of truth the agent is grounded on.

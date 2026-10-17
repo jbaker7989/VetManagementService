@@ -4,8 +4,9 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import express from "express";
 
-import { getOrCreateSession, store } from "./lib/agentSession.js";
+import { approvalGate, getOrCreateSession, store } from "./lib/agentSession.js";
 import { buildTextIntakePrompt, commitIntake, parseUpload, planIntake, previewIntake } from "./lib/intake.js";
+import { summarizePatient } from "./lib/modelViews.js";
 import { createPendingIntakes } from "./lib/pendingIntakes.js";
 import { createRequestGuard, defaultAllowedHosts } from "./lib/requestGuard.js";
 import { assertSafeAgentSettings, resolveListenHost } from "./lib/startupChecks.js";
@@ -23,6 +24,7 @@ export function createApp({
   getSession = getOrCreateSession,
   allowedHosts = defaultAllowedHosts(),
   pendingIntakes = createPendingIntakes(),
+  approvals = approvalGate,
 } = {}) {
   const app = express();
 
@@ -34,7 +36,22 @@ export function createApp({
 
   app.get("/api/patients", async (_req, res) => {
     try {
-      res.json(await dataStore.listPatients());
+      res.json((await dataStore.listPatients()).map(summarizePatient));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // The only way to see owner phone/email/address; it never passes through the model.
+  app.get("/api/patients/:id/contact", async (req, res) => {
+    try {
+      const patient = await dataStore.findPatient({ id: req.params.id });
+      if (!patient) {
+        res.status(404).json({ error: "Patient not found" });
+        return;
+      }
+      console.log(`contact: viewed owner contact info for patient ${patient.id}`);
+      res.json({ id: patient.id, owner: patient.owner });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -64,7 +81,7 @@ export function createApp({
     const send = openStream(res, sessionId);
 
     try {
-      const session = await getSession(sessionId);
+      const session = await getSession(sessionId, "chat");
 
       const unsubscribe = session.subscribe((event) => {
         if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
@@ -86,6 +103,26 @@ export function createApp({
       res.end();
     }
   });
+
+  // --- Approval gate: changes the agent proposes wait here until staff decide ---
+
+  app.get("/api/actions", (req, res) => {
+    const { sessionId } = req.query;
+    res.json(typeof sessionId === "string" ? approvals.list(sessionId) : []);
+  });
+
+  for (const decision of ["approve", "reject"]) {
+    app.post(`/api/actions/:id/${decision}`, async (req, res) => {
+      const { sessionId } = req.body || {};
+      try {
+        const found = typeof sessionId === "string" && (await approvals[decision](sessionId, req.params.id));
+        if (found) res.json({ status: decision === "approve" ? "approved" : "rejected" });
+        else res.status(404).json({ error: "No pending action found for this session (it may have expired)" });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+  }
 
   // --- Upload: structured CSV/JSON is validated and previewed, then written by code (no LLM) ---
 
@@ -121,7 +158,7 @@ export function createApp({
         send({ type: "parsed", count: upload.records.length });
         send({ type: "preview", pendingId, ...previewIntake(plan) });
       } else {
-        const session = await getSession(sessionId);
+        const session = await getSession(sessionId, "intake");
         const unsubscribe = session.subscribe((event) => {
           if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
             send({ type: "text", delta: event.assistantMessageEvent.delta });

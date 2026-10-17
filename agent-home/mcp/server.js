@@ -13,6 +13,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { createStore } from "../../lib/store.js";
 import { commitIntake, parseUpload, planIntake } from "../../lib/intake.js";
+import { findPatientForModel, listPatientsForModel, listVisitsForModel, MAX_LIST_RESULTS, redactPatient } from "../../lib/modelViews.js";
 import { patientFields, visitFields } from "../../lib/schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -37,12 +38,12 @@ server.registerTool(
   "list_patients",
   {
     title: "List Patients",
-    description: "List all patient (pet) records currently on file, including owner info.",
+    description: `List patient (pet) records on file: id, pet name, species and owner first name only, up to ${MAX_LIST_RESULTS}.`,
     inputSchema: {},
   },
   async () => {
     try {
-      return textResult(await store.listPatients());
+      return textResult(await listPatientsForModel(store));
     } catch (err) {
       return errorResult(err);
     }
@@ -53,7 +54,9 @@ server.registerTool(
   "find_patient",
   {
     title: "Find Patient",
-    description: "Look up a single patient by id, or by pet name (optionally narrowed by owner name).",
+    description:
+      "Look up a single patient by id, or by pet name (optionally narrowed by owner name). " +
+      "Owner phone, email and address are withheld.",
     inputSchema: {
       id: z.string().describe("Patient id, e.g. p-0001").optional(),
       name: z.string().describe("Pet's name").optional(),
@@ -62,7 +65,7 @@ server.registerTool(
   },
   async (params) => {
     try {
-      return textResult(await store.findPatient(params));
+      return textResult(await findPatientForModel(store, params));
     } catch (err) {
       return errorResult(err);
     }
@@ -80,7 +83,7 @@ server.registerTool(
   },
   async (params) => {
     try {
-      return textResult(await store.upsertPatient(params));
+      return textResult(redactPatient(await store.upsertPatient(params)));
     } catch (err) {
       return errorResult(err);
     }
@@ -91,16 +94,14 @@ server.registerTool(
   "list_visits",
   {
     title: "List Visits",
-    description: "List all visit records, optionally filtered to a single patient.",
+    description: `List visit records, optionally filtered to a single patient, up to ${MAX_LIST_RESULTS}.`,
     inputSchema: {
       patientId: z.string().describe("Only return visits for this patient id").optional(),
     },
   },
   async (params) => {
     try {
-      const visits = await store.listVisits();
-      const filtered = params.patientId ? visits.filter((v) => v.patientId === params.patientId) : visits;
-      return textResult(filtered);
+      return textResult(await listVisitsForModel(store, params.patientId));
     } catch (err) {
       return errorResult(err);
     }

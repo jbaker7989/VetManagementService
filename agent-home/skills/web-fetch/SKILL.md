@@ -3,6 +3,8 @@ name: web-fetch
 description: Look up external reference information — drug dosing/interaction references, breed-specific health considerations, vaccine schedules — to support (never replace) the assigned veterinarian's clinical judgment. Use when brain.md workflows need outside reference material not already known.
 ---
 
+**Not available:** this deployment has no outbound web tool, and the runtime strips this skill (see `lib/agentSession.js`). The agent cannot do any of the steps below; this file is kept only as a design reference for a future, gated implementation.
+
 # Web Fetch
 
 Fetches reference information from the web to support clinic staff. This is a research aid, not a diagnostic or prescribing tool.

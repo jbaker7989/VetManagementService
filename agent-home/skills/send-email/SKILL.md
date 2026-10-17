@@ -3,6 +3,8 @@ name: send-email
 description: Send an email to a pet owner — appointment/follow-up reminders, visit receipts and treatment summaries, or diagnosis/medication instructions. Use whenever a visit's followUp is scheduled, a visit is closed, or the owner otherwise needs a written summary.
 ---
 
+**Not available:** this deployment has no SMTP/email tool, and the runtime strips this skill (see `lib/agentSession.js`). The agent cannot do any of the steps below; this file is kept only as a design reference for a future, gated implementation.
+
 # Send Email
 
 Sends an email to a pet owner on behalf of the clinic. Use this after key events in `../../brain/brain.md`'s workflows: intake confirmation, follow-up scheduling, or visit close-out.

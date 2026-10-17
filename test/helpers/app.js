@@ -27,12 +27,19 @@ export async function createTempStore({ patients = [], visits = [] } = {}) {
   };
 }
 
-export async function startTestApp({ patients = [], visits = [], response = "Stub response", pendingIntakes } = {}) {
+export async function startTestApp({
+  patients = [],
+  visits = [],
+  response = "Stub response",
+  pendingIntakes,
+  approvals,
+} = {}) {
   const temp = await createTempStore({ patients, visits });
   const sessions = [];
   const app = createApp({
     dataStore: temp.store,
     pendingIntakes,
+    approvals,
     getSession: async (sessionId) => {
       const listeners = new Set();
       const session = { sessionId, prompts: [] };

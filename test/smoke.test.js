@@ -20,7 +20,10 @@ test("POST /api/chat streams the stub session response", async (t) => {
     headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
     body: JSON.stringify({ sessionId: "smoke-session", message: "Hi" }),
   });
-  const events = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
+  const events = (await response.text())
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "application/x-ndjson");

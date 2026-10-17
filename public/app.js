@@ -12,6 +12,7 @@ const confirmBtn = document.getElementById("confirmBtn");
 const cancelBtn = document.getElementById("cancelBtn");
 const patientsList = document.getElementById("patientsList");
 const refreshBtn = document.getElementById("refreshBtn");
+const pendingActions = document.getElementById("pendingActions");
 
 let sessionId = localStorage.getItem("vetAgentSessionId") || null;
 let streaming = false;
@@ -333,18 +334,40 @@ function renderPatients(patients) {
   patientsList.innerHTML = "";
   patients
     .slice()
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    .reverse()
     .forEach((p) => {
       const row = document.createElement("div");
-      row.className = "patient-row" + (p.isActive === false ? " inactive" : "");
+      row.className = "patient-row";
       row.innerHTML = `
         <div class="avatar">${speciesEmoji(p.species)}</div>
         <div class="info">
           <div class="name">${escapeHtml(p.name)}</div>
-          <div class="meta">${escapeHtml(p.breed || p.species || "")} · ${escapeHtml(p.owner?.name || "no owner on file")}</div>
-        </div>`;
+          <div class="meta">${escapeHtml(p.species || "")} · ${escapeHtml(p.ownerFirstName || "no owner on file")}</div>
+          <div class="contact" hidden></div>
+        </div>
+        <button class="ghost-btn" type="button">Show contact info</button>`;
+      row.querySelector("button").addEventListener("click", (e) => toggleContact(p.id, e.currentTarget, row.querySelector(".contact")));
       patientsList.appendChild(row);
     });
+}
+
+async function toggleContact(patientId, button, contactEl) {
+  if (!contactEl.hidden) {
+    contactEl.hidden = true;
+    button.textContent = "Show contact info";
+    return;
+  }
+  const res = await fetch(`/api/patients/${encodeURIComponent(patientId)}/contact`);
+  if (!res.ok) {
+    contactEl.textContent = "Couldn't load contact info.";
+  } else {
+    const { owner } = await res.json();
+    contactEl.innerHTML = ["name", "phone", "email", "address"]
+      .map((field) => `${field}: ${escapeHtml(owner?.[field] || "—")}`)
+      .join("<br>");
+  }
+  contactEl.hidden = false;
+  button.textContent = "Hide contact info";
 }
 
 function escapeHtml(str) {
@@ -352,6 +375,67 @@ function escapeHtml(str) {
 }
 
 refreshBtn.addEventListener("click", refreshPatients);
+
+// ---------- Pending agent changes (approval gate) ----------
+
+function formatValue(value) {
+  if (value === null || value === undefined) return "—";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function renderPendingActions(actions) {
+  pendingActions.innerHTML = "";
+  actions.forEach((action) => {
+    const card = document.createElement("div");
+    card.className = "pending-action";
+    const rows = action.changes
+      .map(
+        (c) => `
+          <tr class="${c.highRisk ? "high-risk" : ""}">
+            <th>${escapeHtml(c.field)}${c.highRisk ? ' <span class="risk-flag">⚠ high risk</span>' : ""}</th>
+            <td class="before">${c.appended ? "(added to existing)" : escapeHtml(formatValue(c.before))}</td>
+            <td class="after">${escapeHtml(formatValue(c.after))}</td>
+          </tr>`,
+      )
+      .join("");
+    card.innerHTML = `
+      <div class="pending-title">Agent proposes: ${escapeHtml(action.summary)}</div>
+      <table class="diff"><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="upload-actions">
+        <button class="ghost-btn" data-decision="approve" type="button">Approve</button>
+        <button class="ghost-btn" data-decision="reject" type="button">Reject</button>
+      </div>`;
+    card.querySelectorAll("button").forEach((button) =>
+      button.addEventListener("click", async () => {
+        card.querySelectorAll("button").forEach((b) => (b.disabled = true));
+        await fetch(`/api/actions/${encodeURIComponent(action.id)}/${button.dataset.decision}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
+          body: JSON.stringify({ sessionId }),
+        });
+        pollPendingActions();
+      }),
+    );
+    pendingActions.appendChild(card);
+  });
+}
+
+let lastPendingKey = "";
+async function pollPendingActions() {
+  if (!sessionId) return;
+  try {
+    const actions = await (await fetch(`/api/actions?sessionId=${encodeURIComponent(sessionId)}`)).json();
+    // Skip identical lists so a card isn't rebuilt under the user's cursor.
+    const key = actions.map((a) => a.id).join();
+    if (key === lastPendingKey) return;
+    lastPendingKey = key;
+    renderPendingActions(actions);
+    if (actions.length) scrollToBottom();
+  } catch {
+    // transient; the next poll retries
+  }
+}
+setInterval(pollPendingActions, 1500);
 
 // ---------- Init ----------
 

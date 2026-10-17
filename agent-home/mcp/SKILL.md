@@ -27,10 +27,10 @@ is no separate database and no HTTP hop.
 
 | Tool | Purpose |
 |---|---|
-| `list_patients` | List all patient (pet) records, including owner info. |
-| `find_patient` | Look up one patient by `id`, or by `name` (+ optional `ownerName` to disambiguate). |
+| `list_patients` | List patients as id, pet name, species and owner first name only (max 50). |
+| `find_patient` | Look up one patient by `id`, or by `name` (+ optional `ownerName` to disambiguate). Owner phone, email and address are withheld. |
 | `upsert_patient` | Create (omit `id`) or update (pass `id`) a patient record. |
-| `list_visits` | List all visits, optionally filtered by `patientId`. |
+| `list_visits` | List visits (max 50), optionally filtered by `patientId`. |
 | `upsert_visit` | Create (omit `id`) or update (pass `id`) a visit. `treatmentLog`/`medications` entries are appended; `costs` replaces the list and `totalCost` is recomputed. |
 | `bulk_intake` | Create/update many patients at once from raw CSV or JSON text. Rows are validated against the patient schema (invalid rows are rejected and reported) and written by code — no interpretation, so field names must already match the schema below. |
 
@@ -38,6 +38,11 @@ The `upsert_patient` and `upsert_visit` field names, enums, and the append/repla
 semantics for visit sub-lists come straight from the schemas and workflows in
 [`../brain/brain.md`](../brain/brain.md) — read that file rather than duplicating
 the schema here.
+
+Read results and `upsert_patient` results go through the same redaction as the chat
+agent (`../../lib/modelViews.js`): owner contact details can be written but never
+read back. Full contact info is only available from the web UI's "Show contact info"
+action. Unlike chat-agent proposals, MCP writes are not held for approval.
 
 ## Requirements
 
