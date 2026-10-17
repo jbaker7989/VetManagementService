@@ -1,6 +1,6 @@
 {
   "$schema": "https://pi.dev/settings-schema.json",
-  "defaultProjectTrust": "always",
+  "defaultProjectTrust": "never",
   "steeringMode": "one-at-a-time",
   "followUpMode": "one-at-a-time",
   "transport": "auto",

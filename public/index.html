@@ -50,6 +50,8 @@
             </div>
           </div>
 
+          <div class="pending-actions" id="pendingActions"></div>
+
           <form class="composer" id="composer">
             <textarea
               id="composerInput"
@@ -69,7 +71,7 @@
           <div class="card">
             <div class="card-head">
               <h2>Bulk intake</h2>
-              <p>Upload a CSV or JSON file of pets &amp; owners. The agent applies the intake workflow to each record.</p>
+              <p>Upload a CSV or JSON file of pets &amp; owners. Structured files are validated and previewed before anything is saved.</p>
             </div>
             <label class="dropzone" id="dropzone" for="fileInput">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
@@ -85,6 +87,10 @@
               <input type="file" id="fileInput" accept=".csv,.json,application/json,text/csv" hidden />
             </label>
             <div class="upload-status" id="uploadStatus"></div>
+            <div class="upload-actions" id="uploadActions" hidden>
+              <button class="ghost-btn" id="confirmBtn" type="button">Confirm import</button>
+              <button class="ghost-btn" id="cancelBtn" type="button">Cancel</button>
+            </div>
           </div>
 
           <div class="card records-card">

@@ -432,6 +432,16 @@ body {
   color: var(--success);
 }
 
+.upload-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.upload-actions[hidden] {
+  display: none;
+}
+
 .ghost-btn {
   border: 1px solid var(--border);
   background: transparent;
@@ -492,6 +502,7 @@ body {
 
 .patient-row .info {
   min-width: 0;
+  flex: 1;
 }
 
 .patient-row .name {
@@ -506,8 +517,56 @@ body {
   white-space: nowrap;
 }
 
-.patient-row.inactive {
-  opacity: 0.55;
+.patient-row .contact {
+  margin-top: 4px;
+  color: var(--ink);
+  white-space: normal;
+  word-break: break-word;
+}
+
+.pending-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pending-action {
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+
+.pending-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.diff {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.diff th,
+.diff td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.diff .before {
+  color: var(--ink-soft);
+}
+
+.diff tr.high-risk {
+  background: var(--accent-soft);
+}
+
+.risk-flag {
+  color: var(--danger);
+  font-weight: 700;
 }
 
 /* ---------- Footer ---------- */

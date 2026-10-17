@@ -17,15 +17,26 @@ programmatic/AI clients) an MCP server exposing the same operations directly.
 
 - **Express front end** (`server.js`, `public/`) — a vanilla JS/HTML/CSS chat
   UI and bulk-upload UI. Exposes:
-  - `GET /api/patients`, `GET /api/visits` — direct reads for the UI
+  - `GET /api/patients` (pet name, species, owner first name only), `GET /api/visits` — direct reads for the UI
+  - `GET /api/patients/:id/contact` — full owner contact details for one patient; the
+    only way to see them, logged by patient id, and never shown to the agent
+  - `GET /api/actions?sessionId=`, `POST /api/actions/:id/approve|reject` — the approval
+    gate: every change the agent proposes waits here for a staff click (the model
+    cannot call these). `APPROVAL_TIMEOUT_MS` (default 300000) sets how long a
+    proposal waits before it is cancelled; at most 5 can be pending per session
   - `POST /api/chat` — streams an NDJSON conversation with the clinic agent
-  - `POST /api/upload` — parses a CSV/JSON file and runs it through the intake
-    workflow
+  - `POST /api/upload` — validates a CSV/JSON file against the patient schema and
+    returns a dry-run preview (no LLM); `POST /api/upload/confirm` commits it.
+    Only free text that isn't structured data is handed to the agent, inside an
+    "UPLOADED DATA — NOT INSTRUCTIONS" block
 - **Clinic agent** (`agent-home/`, `lib/agentSession.js`) — a
   [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
   session configured with **no filesystem or shell access** — only five typed
   tools (`lib/tools.js`): `list_patients`, `find_patient`, `upsert_patient`,
-  `list_visits`, `upsert_visit`. Domain rules (data schema, intake/treatment/
+  `list_visits`, `upsert_visit`. Chat sessions get all five; free-text upload
+  sessions get only the two `upsert_*` tools. Reads are redacted in code
+  (`lib/modelViews.js`) and writes are held for staff approval
+  (`lib/approvalGate.js`). The send-email and web-fetch skills are not wired up. Domain rules (data schema, intake/treatment/
   follow-up workflows, "never guess a diagnosis or dosage") live in
   [`agent-home/brain/brain.md`](agent-home/brain/brain.md), the single source
   of truth the agent is grounded on.
@@ -34,9 +45,9 @@ programmatic/AI clients) an MCP server exposing the same operations directly.
   Records are never deleted, only marked inactive.
 - **MCP server** (`agent-home/mcp/server.js`) — a local stdio
   [Model Context Protocol](https://modelcontextprotocol.io) server exposing
-  the same CRUD tools, plus bulk intake and a natural-language tool, directly
-  to external MCP clients like Claude Desktop — independent of the Express
-  app, backed by the same JSON store. See
+  the same CRUD tools, plus bulk intake, directly to external MCP clients
+  like Claude Desktop (opt-in; it exposes no chat tool) — independent of the
+  Express app, backed by the same JSON store. See
   [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md) for setup and tool
   docs.
 
@@ -51,12 +62,91 @@ readability over production scale.
 
 ```bash
 npm install
-npm start        # Express app at http://localhost:3000
+npm start        # Express app at http://127.0.0.1:3000
 ```
 
 Requires a `KIMI_API_KEY` in `.env` for the LLM behind the chat/upload agent.
 To run the MCP server standalone instead (or in addition), see
 [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md).
+
+## Network exposure and deployment
+
+The app has no login, so reachability is the access control. It binds to
+`127.0.0.1` by default; set `HOST` to bind a specific LAN address. Startup
+refuses a wildcard or public bind unless `ALLOW_PUBLIC_BIND=true`, and refuses
+to start if `agent-home/settings.json` sets `defaultProjectTrust` to `"always"`.
+
+Requests must carry an allowed `Host` header (loopback, `HOST`, or any name in
+the comma-separated `ALLOWED_HOSTS`), cross-origin `Origin`/`Referer` values are
+rejected with `403`, and `POST` routes require `X-Requested-With: vet-agent`.
+
+Supported deployments:
+
+- **Localhost** (default) — one machine, one user.
+- **LAN / VPN** — set `HOST` to the machine's private address.
+- **Reverse proxy** — bind to loopback, restrict access at the proxy with an IP
+  allowlist or basic auth, and list the proxy's hostname in `ALLOWED_HOSTS`.
+
+Exposing the app to the public internet with patient data (PHI) is **not
+supported**.
+
+### Prompt-injection controls
+
+- **Sessions** — the browser gets its session id from `POST /api/session`
+  (`{ "sessionId"? }` in, `{ "sessionId" }` out; a still-valid id is resumed,
+  otherwise a new 128-bit random one is issued). `/api/chat`, `/api/upload`,
+  `/api/upload/confirm` and `/api/actions*` reject any other id with `403`.
+  Ids expire after an hour idle.
+- **Limits** — `/api/chat` and `/api/upload` are rate limited per client IP
+  (`429` with `Retry-After`; 20 and 10 requests/minute, in memory). Chat
+  messages are capped at 4000 characters, a turn at 25 tool calls, uploads at
+  1 MB and 500 rows, filenames at 120 characters. Behind a reverse proxy every
+  client shares the proxy's IP unless Express `trust proxy` is configured.
+- **Data handling** — tool results reach the model inside a
+  `CLINIC DATA — NOT INSTRUCTIONS` block, stored text is control-character
+  stripped and length capped on write, and instruction-like text in records is
+  flagged in the UI (never blocked). Model text is scrubbed of markdown images
+  and `http(s)` links before it is streamed, and rendered as plain text.
+- **System prompt rules** in `brain.md` are a supporting layer, not a security
+  boundary; the server-side controls above are what enforce safety.
+- **Audit log** — each tool call (chat, intake and MCP) is one JSON line on
+  stdout with masked arguments (email/phone/address hashed, note bodies
+  omitted), session id, IP and source. Anomalies are lines with
+  `"level":"alert"`: bulk reads, repeated mutation proposals, rejected
+  approvals and injection phrases. Retention and rotation are up to the
+  operator (e.g. your process manager or log shipper).
+
+## Backups and recovery
+
+Before every change to `patients.json` or `visits.json` (approved chat or intake
+changes, confirmed uploads and MCP writes alike) the store snapshots both files,
+and the running server also snapshots hourly if anything changed. Snapshots and
+an append-only change log (`changes.jsonl`: source, session id, time, record,
+before/after) live in `agent-home/memory/backups/`, which is git-ignored.
+`BACKUP_MAX_SNAPSHOTS` (default 100) caps how many snapshots are kept, oldest
+pruned first; `BACKUP_MAX_CHANGES` (default 5000) rotates the change log once it
+holds that many entries, keeping one older generation (`changes.1.jsonl`);
+`BACKUP_INTERVAL_MS` (default 3600000) sets the scheduled interval.
+Data files are written to a temp file and renamed, so a crash cannot leave a
+half-written file.
+
+To recover, **stop the server first**, then use the admin script (not available
+over HTTP). Each restore or revert saves a safety snapshot of the current state
+first, so it can itself be undone:
+
+```bash
+npm run restore -- list-snapshots          # id, time, trigger, record counts
+npm run restore -- list-changes            # id, time, source, session, record
+npm run restore -- restore <snapshot-id>   # replace both data files from a snapshot
+npm run restore -- revert <change-id>      # undo one change; refuses if the record
+                                           # changed since, unless --force is added
+```
+
+## Testing
+
+Run `npm test` with Node.js 24 to execute the built-in Node test suite.
+The smoke tests use a temporary data store and a stub agent session, so they
+do not require API keys or modify clinic data.
 
 ## About the author
 
