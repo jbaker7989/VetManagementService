@@ -58,6 +58,12 @@ Requires a `KIMI_API_KEY` in `.env` for the LLM behind the chat/upload agent.
 To run the MCP server standalone instead (or in addition), see
 [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md).
 
+## Testing
+
+Run `npm test` with Node.js 24 to execute the built-in Node test suite.
+The smoke tests use a temporary data store and a stub agent session, so they
+do not require API keys or modify clinic data.
+
 ## About the author
 
 Built by **Jason Baker**, a Senior Technical Product Manager and CEO/Founder
