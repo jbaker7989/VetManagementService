@@ -45,8 +45,8 @@ programmatic/AI clients) an MCP server exposing the same operations directly.
   Records are never deleted, only marked inactive.
 - **MCP server** (`agent-home/mcp/server.js`) — a local stdio
   [Model Context Protocol](https://modelcontextprotocol.io) server exposing
-  the same CRUD tools, plus bulk intake, directly to external MCP clients
-  like Claude Desktop (opt-in; it exposes no chat tool) — independent of the
+  CRUD tools and bulk intake directly to external MCP clients like Claude
+  Desktop (opt-in; it exposes no free-form chat tool) — independent of the
   Express app, backed by the same JSON store. See
   [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md) for setup and tool
   docs.
@@ -63,11 +63,62 @@ readability over production scale.
 ```bash
 npm install
 npm start        # Express app at http://127.0.0.1:3000
+npm run dev      # Restart on file changes
+npm test         # Run test suite
+npm run restore  # Admin recovery: list/restore snapshots or revert changes
 ```
 
-Requires a `KIMI_API_KEY` in `.env` for the LLM behind the chat/upload agent.
+Requires an LLM provider configured for the Pi coding agent runtime that powers
+the chat/upload agent (API key in `.env`; see the
+[`@earendil-works/pi-coding-agent` docs](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)).
 To run the MCP server standalone instead (or in addition), see
 [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md).
+
+## HTTP API
+
+| Route | Method | Purpose | Notes |
+|-------|--------|---------|-------|
+| `/api/session` | POST | Get or resume a session | Returns `{ sessionId }` |
+| `/api/patients` | GET | List all patients (pet name, species, owner first name only) | Each patient includes a `flagged` boolean |
+| `/api/patients/:id/contact` | GET | Full owner contact details for one patient | Never shown to agent; logged |
+| `/api/visits` | GET | List visits; optionally filter by `?patientId=` | Each visit includes a `flagged` boolean |
+| `/api/chat` | POST | Stream agent response to a chat message | Session required; rate limited |
+| `/api/upload` | POST | Parse and preview a CSV/JSON file | Session required; rate limited; valid rows never reach the LLM; free text goes to the approval-gated agent |
+| `/api/upload/confirm` | POST | Commit validated intake records | Session required; commits a previewed intake (deterministic, no LLM); single-use `pendingId` |
+| `/api/actions` | GET | List pending approvals for a session | Session required |
+| `/api/actions/:id/approve` | POST | Approve a pending change | Session required |
+| `/api/actions/:id/reject` | POST | Reject a pending change | Session required |
+
+All routes enforce allowed `Host` header (loopback, `HOST` env, or `ALLOWED_HOSTS`). POST routes require `X-Requested-With: vet-agent` header and same-origin `Origin`/`Referer` (blocks cross-site requests).
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HOST` | `127.0.0.1` | Bind address (loopback by default; set to private LAN IP or use reverse proxy) |
+| `PORT` | `3000` | HTTP server port |
+| `ALLOW_PUBLIC_BIND` | — | Set to `true` only if access is restricted upstream (e.g., reverse proxy) |
+| `ALLOWED_HOSTS` | — | Comma-separated hostnames allowed in `Host` header (e.g., `clinic.internal,proxy.lan`) |
+| `APPROVAL_TIMEOUT_MS` | `300000` (5 min) | How long a pending approval waits before being cancelled |
+| `BACKUP_INTERVAL_MS` | `3600000` (1 hr) | Scheduled snapshot interval |
+| `BACKUP_MAX_SNAPSHOTS` | `100` | Maximum point-in-time snapshots kept (oldest pruned first) |
+| `BACKUP_MAX_CHANGES` | `5000` | Maximum entries in change log before rotation |
+
+Env vars are read via `dotenv/config` on startup.
+
+## Security model at a glance
+
+This app has **no login** because it's designed for a single clinic's LAN or localhost. Security relies on network isolation, server-side controls, and recovery mechanisms rather than authentication.
+
+**Core principles:**
+- The LLM is never trusted with unguarded reads (records redacted before reaching the model) or unguarded writes (all mutations held for human approval).
+- Structured data uploads bypass the LLM entirely; only ambiguous free-text is LLM-interpreted.
+- Least-privilege: intake sessions cannot read; chat sessions have field-redacted results.
+- Audit and recovery: every tool call is logged; data can be restored to a prior state.
+
+**Verification:** `npm test` runs a red-team suite of 25 injection payloads (live chat, uploads, stored fields, cross-site) against a deliberately compromised stub model, asserting that no unapproved write, PII leak or exfiltration link gets through.
+
+See [`docs/security/`](docs/security/) for the full feature spec ([`prompt-injection-no-login-feature-and-stories.md`](docs/security/prompt-injection-no-login-feature-and-stories.md)), executive summary, and [delivery board](docs/security/sec-002-board.md).
 
 ## Network exposure and deployment
 
@@ -92,43 +143,60 @@ supported**.
 
 ### Prompt-injection controls
 
-- **Sessions** — the browser gets its session id from `POST /api/session`
-  (`{ "sessionId"? }` in, `{ "sessionId" }` out; a still-valid id is resumed,
-  otherwise a new 128-bit random one is issued). `/api/chat`, `/api/upload`,
-  `/api/upload/confirm` and `/api/actions*` reject any other id with `403`.
-  Ids expire after an hour idle.
-- **Limits** — `/api/chat` and `/api/upload` are rate limited per client IP
-  (`429` with `Retry-After`; 20 and 10 requests/minute, in memory). Chat
-  messages are capped at 4000 characters, a turn at 25 tool calls, uploads at
-  1 MB and 500 rows, filenames at 120 characters. Behind a reverse proxy every
-  client shares the proxy's IP unless Express `trust proxy` is configured.
-- **Data handling** — tool results reach the model inside a
-  `CLINIC DATA — NOT INSTRUCTIONS` block, stored text is control-character
-  stripped and length capped on write, and instruction-like text in records is
-  flagged in the UI (never blocked). Model text is scrubbed of markdown images
-  and `http(s)` links before it is streamed, and rendered as plain text.
-- **System prompt rules** in `brain.md` are a supporting layer, not a security
-  boundary; the server-side controls above are what enforce safety.
-- **Audit log** — each tool call (chat, intake and MCP) is one JSON line on
-  stdout with masked arguments (email/phone/address hashed, note bodies
-  omitted), session id, IP and source. Anomalies are lines with
-  `"level":"alert"`: bulk reads, repeated mutation proposals, rejected
-  approvals and injection phrases. Retention and rotation are up to the
-  operator (e.g. your process manager or log shipper).
+- **Sessions** — the browser gets a session id from `POST /api/session`
+  (returns `{ "sessionId" }`, accepts optional `{ "sessionId" }` to resume).
+  A new 128-bit random id is issued if none is provided or the id has expired.
+  `/api/chat`, `/api/upload`, `/api/upload/confirm`, and `/api/actions*`
+  routes reject requests with an unknown or expired session id (`403`).
+  Sessions expire after 1 hour of inactivity.
+- **Rate limits** — `/api/chat` and `/api/upload` are limited per client IP
+  (20 and 10 requests/minute, respectively; returns `429` with `Retry-After`
+  header). Chat messages are capped at 4000 characters, turns at 25 tool calls,
+  uploads at 1 MB and 500 rows, and filenames at 120 characters. Behind a
+  reverse proxy, all clients share the proxy's IP unless Express `trust proxy`
+  is explicitly configured.
+- **Structured data handling** — uploaded CSV/JSON is parsed and validated
+  server-side before anything reaches the model; only ambiguous free-text is
+  sent to the LLM. Tool results are wrapped in `CLINIC DATA — NOT INSTRUCTIONS`
+  and uploaded text in `UPLOADED DATA — NOT INSTRUCTIONS` blocks. All stored
+  text is control-character stripped and length-limited on write; records with
+  instruction-like text are flagged in the UI (never blocked from storage).
+- **Output filtering** — model text is scrubbed of markdown images and
+  `http(s)` links before streaming, and rendered as plain text to prevent
+  exfiltration via embedded URLs. Owner contact details (phone, email, address)
+  are withheld from model results; they are available only through a direct UI
+  action (`GET /api/patients/:id/contact`) that never passes through the agent.
+- **Approval gate** — every mutation tool call (`upsert_patient`,
+  `upsert_visit`) from the LLM is held server-side as a pending action. The UI
+  shows a readable before/after diff and requires explicit Approve/Reject. The
+  model cannot trigger approval; it is a separate, server-enforced HTTP action
+  bound to a pending-action ID. Rejection or timeout (5 minutes) cancels the
+  action and tells the agent why. At most 5 pending actions are kept per session
+  to prevent approval fatigue.
+- **System prompt and domain rules** in `brain.md` (capability descriptions,
+  data schema, workflows) are a supporting layer, not a security boundary. The
+  server-side controls above are what enforce safety.
+- **Audit log** — each tool call (chat, intake, and MCP) is logged as one JSON
+  line to stdout with session id, IP, source, tool name, and arguments (masked:
+  email/phone/address hashed, note bodies omitted). Alert-level anomalies
+  (bulk reads, repeated mutation proposals, rejected approvals, injection
+  phrases) are flagged with `"level":"alert"`. Retention and rotation are
+  operator-controlled (e.g., via process manager or log shipper).
 
 ## Backups and recovery
 
-Before every change to `patients.json` or `visits.json` (approved chat or intake
-changes, confirmed uploads and MCP writes alike) the store snapshots both files,
-and the running server also snapshots hourly if anything changed. Snapshots and
-an append-only change log (`changes.jsonl`: source, session id, time, record,
-before/after) live in `agent-home/memory/backups/`, which is git-ignored.
-`BACKUP_MAX_SNAPSHOTS` (default 100) caps how many snapshots are kept, oldest
-pruned first; `BACKUP_MAX_CHANGES` (default 5000) rotates the change log once it
-holds that many entries, keeping one older generation (`changes.1.jsonl`);
-`BACKUP_INTERVAL_MS` (default 3600000) sets the scheduled interval.
-Data files are written to a temp file and renamed, so a crash cannot leave a
-half-written file.
+Every change to `patients.json` or `visits.json` (from approved chat/intake actions,
+confirmed uploads, or MCP writes) triggers a point-in-time snapshot of both files.
+The running server also snapshots hourly if anything changed. Snapshots and an
+append-only change log (`changes.jsonl`: id, timestamp, source, session id, record
+id, before/after state) live in `agent-home/memory/backups/`, which is git-ignored.
+Data files are written atomically (temp file + rename), so crashes cannot leave a
+half-written file. Environment variables (see above) control:
+- `BACKUP_MAX_SNAPSHOTS` (default 100): oldest snapshots pruned when this limit is reached
+- `BACKUP_MAX_CHANGES` (default 5000): when the change log reaches this size, it rotates
+  to `changes.1.jsonl` and a new `changes.jsonl` is started
+- `BACKUP_INTERVAL_MS` (default 3600000 / 1 hour): how often the server takes a scheduled
+  snapshot if anything changed
 
 To recover, **stop the server first**, then use the admin script (not available
 over HTTP). Each restore or revert saves a safety snapshot of the current state
