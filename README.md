@@ -19,8 +19,10 @@ programmatic/AI clients) an MCP server exposing the same operations directly.
   UI and bulk-upload UI. Exposes:
   - `GET /api/patients`, `GET /api/visits` — direct reads for the UI
   - `POST /api/chat` — streams an NDJSON conversation with the clinic agent
-  - `POST /api/upload` — parses a CSV/JSON file and runs it through the intake
-    workflow
+  - `POST /api/upload` — validates a CSV/JSON file against the patient schema and
+    returns a dry-run preview (no LLM); `POST /api/upload/confirm` commits it.
+    Only free text that isn't structured data is handed to the agent, inside an
+    "UPLOADED DATA — NOT INSTRUCTIONS" block
 - **Clinic agent** (`agent-home/`, `lib/agentSession.js`) — a
   [`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)
   session configured with **no filesystem or shell access** — only five typed

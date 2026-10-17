@@ -5,15 +5,24 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 
 import { getOrCreateSession, store } from "./lib/agentSession.js";
-import { parseCsv } from "./lib/csv.js";
+import { buildTextIntakePrompt, commitIntake, parseUpload, planIntake, previewIntake } from "./lib/intake.js";
+import { createPendingIntakes } from "./lib/pendingIntakes.js";
 import { createRequestGuard, defaultAllowedHosts } from "./lib/requestGuard.js";
 import { assertSafeAgentSettings, resolveListenHost } from "./lib/startupChecks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+function openStream(res, sessionId) {
+  res.setHeader("Content-Type", "application/x-ndjson");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("X-Session-Id", sessionId);
+  return (obj) => res.write(JSON.stringify(obj) + "\n");
+}
+
 export function createApp({
   dataStore = store,
   getSession = getOrCreateSession,
   allowedHosts = defaultAllowedHosts(),
+  pendingIntakes = createPendingIntakes(),
 } = {}) {
   const app = express();
 
@@ -52,11 +61,7 @@ export function createApp({
       return;
     }
 
-    res.setHeader("Content-Type", "application/x-ndjson");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("X-Session-Id", sessionId);
-
-    const send = (obj) => res.write(JSON.stringify(obj) + "\n");
+    const send = openStream(res, sessionId);
 
     try {
       const session = await getSession(sessionId);
@@ -82,7 +87,7 @@ export function createApp({
     }
   });
 
-  // --- Upload: parse CSV/JSON client-side-selected file, hand rows to the agent ---
+  // --- Upload: structured CSV/JSON is validated and previewed, then written by code (no LLM) ---
 
   app.post("/api/upload", async (req, res) => {
     const { filename, content } = req.body || {};
@@ -93,53 +98,64 @@ export function createApp({
       return;
     }
 
-    let records;
+    let upload;
     try {
-      if (/\.json$/i.test(filename || "") || content.trim().startsWith("[") || content.trim().startsWith("{")) {
-        const parsed = JSON.parse(content);
-        records = Array.isArray(parsed) ? parsed : [parsed];
-      } else {
-        records = parseCsv(content);
-      }
+      upload = parseUpload(filename, content);
     } catch (err) {
       res.status(400).json({ error: `Could not parse ${filename || "file"}: ${err.message}` });
       return;
     }
 
-    if (records.length === 0) {
+    if (upload.records?.length === 0) {
       res.status(400).json({ error: "No records found in file" });
       return;
     }
 
-    res.setHeader("Content-Type", "application/x-ndjson");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("X-Session-Id", sessionId);
-    const send = (obj) => res.write(JSON.stringify(obj) + "\n");
-
-    const prompt =
-      `A staff member uploaded ${records.length} pet/owner record(s) from "${filename || "an upload"}" for intake. ` +
-      `Follow the intake workflow in brain.md for each one: look up whether the patient already exists, ` +
-      `create or update the patient record with upsert_patient, and use reasonable judgement for any field ` +
-      `not present in the data (ask only if something essential like the pet's name is missing and can't be ` +
-      `inferred). Do not invent an owner or veterinarian. When done, summarize what was created/updated.\n\n` +
-      `Records (JSON):\n${JSON.stringify(records, null, 2)}`;
+    const send = openStream(res, sessionId);
 
     try {
-      const session = await getSession(sessionId);
-      const unsubscribe = session.subscribe((event) => {
-        if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-          send({ type: "text", delta: event.assistantMessageEvent.delta });
-        } else if (event.type === "tool_execution_start") {
-          send({ type: "tool_start", toolName: event.toolName });
-        } else if (event.type === "tool_execution_end") {
-          send({ type: "tool_end", toolName: event.toolName, isError: event.isError });
-        }
-      });
-
       send({ type: "session", sessionId });
-      send({ type: "parsed", count: records.length });
-      await session.prompt(prompt);
-      unsubscribe();
+      if (upload.records) {
+        const plan = await planIntake(dataStore, upload.records);
+        const pendingId = plan.items.length ? pendingIntakes.add(sessionId, plan) : null;
+        send({ type: "parsed", count: upload.records.length });
+        send({ type: "preview", pendingId, ...previewIntake(plan) });
+      } else {
+        const session = await getSession(sessionId);
+        const unsubscribe = session.subscribe((event) => {
+          if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
+            send({ type: "text", delta: event.assistantMessageEvent.delta });
+          } else if (event.type === "tool_execution_start") {
+            send({ type: "tool_start", toolName: event.toolName });
+          } else if (event.type === "tool_execution_end") {
+            send({ type: "tool_end", toolName: event.toolName, isError: event.isError });
+          }
+        });
+        await session.prompt(buildTextIntakePrompt(upload.text));
+        unsubscribe();
+      }
+      send({ type: "done" });
+    } catch (err) {
+      send({ type: "error", message: err.message });
+    } finally {
+      res.end();
+    }
+  });
+
+  app.post("/api/upload/confirm", async (req, res) => {
+    const { sessionId, pendingId } = req.body || {};
+    const plan = typeof sessionId === "string" && typeof pendingId === "string" ? pendingIntakes.take(sessionId, pendingId) : null;
+
+    if (!plan) {
+      res.status(404).json({ error: "No pending intake found for this session (it may have expired)" });
+      return;
+    }
+
+    const send = openStream(res, sessionId);
+
+    try {
+      send({ type: "session", sessionId });
+      send({ type: "summary", ...(await commitIntake(dataStore, plan)) });
       send({ type: "done" });
     } catch (err) {
       send({ type: "error", message: err.message });

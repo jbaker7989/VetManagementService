@@ -12,7 +12,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { createStore } from "../../lib/store.js";
-import { parseCsv } from "../../lib/csv.js";
+import { commitIntake, parseUpload, planIntake } from "../../lib/intake.js";
+import { patientFields, visitFields } from "../../lib/schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const AGENT_DIR = path.resolve(__dirname, "..");
@@ -31,13 +32,6 @@ function textResult(value) {
 function errorResult(err) {
   return { content: [{ type: "text", text: `Error: ${err.message}` }], isError: true };
 }
-
-const OwnerInput = {
-  name: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().optional(),
-  address: z.string().optional(),
-};
 
 server.registerTool(
   "list_patients",
@@ -82,21 +76,7 @@ server.registerTool(
     description:
       "Create a new patient record, or update an existing one by passing its id. Omit id to create. " +
       "Follow the clinic's data model in brain.md: ask for any required field you don't have instead of inventing one.",
-    inputSchema: {
-      id: z.string().describe("Existing patient id to update; omit to create new").optional(),
-      name: z.string().optional(),
-      species: z.string().optional(),
-      breed: z.string().optional(),
-      sex: z.enum(["male", "female", "unknown"]).optional(),
-      neutered: z.boolean().optional(),
-      dateOfBirth: z.string().nullable().optional(),
-      approximateAge: z.string().nullable().optional(),
-      weightKg: z.number().nullable().optional(),
-      distinguishingCharacteristics: z.string().nullable().optional(),
-      owner: z.object(OwnerInput).optional(),
-      isActive: z.boolean().describe("Set false if the pet has died").optional(),
-      deathDate: z.string().nullable().optional(),
-    },
+    inputSchema: patientFields,
   },
   async (params) => {
     try {
@@ -127,26 +107,6 @@ server.registerTool(
   },
 );
 
-const TreatmentLogEntry = z.object({
-  timestamp: z.string().optional(),
-  performedBy: z.string(),
-  note: z.string(),
-});
-
-const MedicationEntry = z.object({
-  name: z.string(),
-  dosage: z.string(),
-  frequency: z.string(),
-  route: z.string(),
-  instructions: z.string(),
-  administeredAt: z.string().nullable().optional(),
-});
-
-const CostEntry = z.object({
-  item: z.string(),
-  amount: z.number(),
-});
-
 server.registerTool(
   "upsert_visit",
   {
@@ -155,27 +115,7 @@ server.registerTool(
       "Create a new visit, or update an existing one by passing its id. Omit id to create a new visit " +
       "(intake). treatmentLog/medications entries you pass are APPENDED to the existing log, never replacing it. " +
       "costs, if passed, REPLACES the full cost list and totalCost is recomputed automatically.",
-    inputSchema: {
-      id: z.string().describe("Existing visit id to update; omit to create new").optional(),
-      patientId: z.string().optional(),
-      intakeType: z.enum(["scheduled", "walk-in"]).optional(),
-      scheduledAt: z.string().nullable().optional(),
-      checkedInAt: z.string().optional(),
-      assignedVeterinarian: z.string().nullable().optional(),
-      reasonForVisit: z.string().optional(),
-      diagnosis: z.string().nullable().optional(),
-      status: z.enum(["checked-in", "in-treatment", "awaiting-followup", "closed"]).optional(),
-      treatmentLog: z.array(TreatmentLogEntry).optional(),
-      medications: z.array(MedicationEntry).optional(),
-      costs: z.array(CostEntry).optional(),
-      followUp: z
-        .object({
-          scheduled: z.boolean().optional(),
-          date: z.string().nullable().optional(),
-          reason: z.string().nullable().optional(),
-        })
-        .optional(),
-    },
+    inputSchema: visitFields,
   },
   async (params) => {
     try {
@@ -201,24 +141,11 @@ server.registerTool(
   },
   async ({ filename, content }) => {
     try {
-      let records;
-      if (/\.json$/i.test(filename || "") || content.trim().startsWith("[") || content.trim().startsWith("{")) {
-        const parsed = JSON.parse(content);
-        records = Array.isArray(parsed) ? parsed : [parsed];
-      } else {
-        records = parseCsv(content);
-      }
+      const upload = parseUpload(filename, content);
+      if (!upload.records) return errorResult(new Error("Content is not structured CSV or JSON patient data"));
+      if (upload.records.length === 0) return errorResult(new Error("No records found in file"));
 
-      if (records.length === 0) {
-        return errorResult(new Error("No records found in file"));
-      }
-
-      const results = [];
-      for (const record of records) {
-        const patient = await store.upsertPatient(record);
-        results.push({ id: patient.id, name: patient.name });
-      }
-      return textResult({ count: results.length, patients: results });
+      return textResult(await commitIntake(store, await planIntake(store, upload.records)));
     } catch (err) {
       return errorResult(err);
     }

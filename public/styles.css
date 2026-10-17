@@ -432,6 +432,16 @@ body {
   color: var(--success);
 }
 
+.upload-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.upload-actions[hidden] {
+  display: none;
+}
+
 .ghost-btn {
   border: 1px solid var(--border);
   background: transparent;

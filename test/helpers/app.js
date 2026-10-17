@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { createApp } from "../../server.js";
 import { createStore } from "../../lib/store.js";
 
-export async function startTestApp({ patients = [], visits = [], response = "Stub response" } = {}) {
+export async function createTempStore({ patients = [], visits = [] } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "vet-agent-test-"));
   const memory = path.join(directory, "memory");
   await mkdir(memory);
@@ -16,9 +16,23 @@ export async function startTestApp({ patients = [], visits = [], response = "Stu
     writeFile(visitsPath, JSON.stringify(visits, null, 2)),
   ]);
 
+  return {
+    directory,
+    patientsPath,
+    visitsPath,
+    store: createStore({ patientsPath, visitsPath }),
+    async close() {
+      await rm(directory, { recursive: true, force: true });
+    },
+  };
+}
+
+export async function startTestApp({ patients = [], visits = [], response = "Stub response", pendingIntakes } = {}) {
+  const temp = await createTempStore({ patients, visits });
   const sessions = [];
   const app = createApp({
-    dataStore: createStore({ patientsPath, visitsPath }),
+    dataStore: temp.store,
+    pendingIntakes,
     getSession: async (sessionId) => {
       const listeners = new Set();
       const session = { sessionId, prompts: [] };
@@ -44,10 +58,11 @@ export async function startTestApp({ patients = [], visits = [], response = "Stu
   return {
     url: `http://127.0.0.1:${server.address().port}`,
     sessions,
+    ...temp,
     async close() {
       server.closeAllConnections();
       await new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
-      await rm(directory, { recursive: true, force: true });
+      await temp.close();
     },
   };
 }

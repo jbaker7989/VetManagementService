@@ -7,11 +7,15 @@ const statusLabel = document.getElementById("statusLabel");
 const dropzone = document.getElementById("dropzone");
 const fileInput = document.getElementById("fileInput");
 const uploadStatus = document.getElementById("uploadStatus");
+const uploadActions = document.getElementById("uploadActions");
+const confirmBtn = document.getElementById("confirmBtn");
+const cancelBtn = document.getElementById("cancelBtn");
 const patientsList = document.getElementById("patientsList");
 const refreshBtn = document.getElementById("refreshBtn");
 
 let sessionId = localStorage.getItem("vetAgentSessionId") || null;
 let streaming = false;
+let pendingIntakeId = null;
 
 function setStatus(state, label) {
   statusDot.className = "pulse-dot" + (state ? ` ${state}` : "");
@@ -69,7 +73,7 @@ function settleToolBadge(el, isError) {
   el.classList.toggle("error", !!isError);
 }
 
-async function streamRequest(url, body, { onText, onToolStart, onToolEnd, onDone, onError }) {
+async function streamRequest(url, body, { onText, onToolStart, onToolEnd, onDone, onError, onEvent }) {
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
@@ -106,6 +110,7 @@ async function streamRequest(url, body, { onText, onToolStart, onToolEnd, onDone
       else if (evt.type === "tool_end") onToolEnd(evt.toolName, evt.isError);
       else if (evt.type === "error") onError(evt.message);
       else if (evt.type === "done") onDone();
+      else onEvent?.(evt);
     }
   }
 }
@@ -206,17 +211,40 @@ function setUploadStatus(text, kind) {
   uploadStatus.className = "upload-status" + (kind ? ` ${kind}` : "");
 }
 
+function hideUploadActions() {
+  pendingIntakeId = null;
+  uploadActions.hidden = true;
+}
+
+function summaryText(headline, { created, updated, rejected }) {
+  const lines = [`${headline}: ${created} created, ${updated} updated, ${rejected.length} rejected.`];
+  rejected.forEach((r) => lines.push(`Row ${r.row}: ${r.errors.join("; ")}`));
+  return lines.join("\n");
+}
+
+function showPreview(preview) {
+  const lines = [summaryText("Preview", preview)];
+  preview.patients.forEach((p) => lines.push(`${p.action === "created" ? "New" : "Update"}: ${p.name}`));
+  setUploadStatus(lines.join("\n"));
+  if (preview.pendingId) {
+    pendingIntakeId = preview.pendingId;
+    uploadActions.hidden = false;
+  }
+}
+
 async function handleFile(file) {
   if (!/\.(csv|json)$/i.test(file.name)) {
     setUploadStatus("Please upload a .csv or .json file.", "error");
     return;
   }
+  hideUploadActions();
   setUploadStatus(`Reading ${file.name}…`);
   const content = await file.text();
 
-  setUploadStatus(`Sending ${file.name} to the agent for intake…`);
+  setUploadStatus(`Checking ${file.name}…`);
   let summary = "";
   let sawError = null;
+  let preview = null;
 
   await streamRequest(
     "/api/upload",
@@ -234,13 +262,51 @@ async function handleFile(file) {
         sawError = message;
       },
       onDone: () => {},
+      onEvent: (evt) => {
+        if (evt.type === "preview") preview = evt;
+      },
     },
   );
 
   if (sawError) setUploadStatus(`Upload failed: ${sawError}`, "error");
+  else if (preview) showPreview(preview);
   else setUploadStatus(summary || "Done.", "success");
   refreshPatients();
 }
+
+confirmBtn.addEventListener("click", async () => {
+  const pendingId = pendingIntakeId;
+  hideUploadActions();
+  setUploadStatus("Importing…");
+  let result = null;
+  let sawError = null;
+
+  await streamRequest(
+    "/api/upload/confirm",
+    { sessionId, pendingId },
+    {
+      onText: () => {},
+      onToolStart: () => {},
+      onToolEnd: () => {},
+      onError: (message) => {
+        sawError = message;
+      },
+      onDone: () => {},
+      onEvent: (evt) => {
+        if (evt.type === "summary") result = evt;
+      },
+    },
+  );
+
+  if (sawError) setUploadStatus(`Import failed: ${sawError}`, "error");
+  else setUploadStatus(summaryText("Imported", result), "success");
+  refreshPatients();
+});
+
+cancelBtn.addEventListener("click", () => {
+  hideUploadActions();
+  setUploadStatus("Import cancelled. Nothing was saved.");
+});
 
 // ---------- Patients list ----------
 

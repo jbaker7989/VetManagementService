@@ -32,7 +32,7 @@ is no separate database and no HTTP hop.
 | `upsert_patient` | Create (omit `id`) or update (pass `id`) a patient record. |
 | `list_visits` | List all visits, optionally filtered by `patientId`. |
 | `upsert_visit` | Create (omit `id`) or update (pass `id`) a visit. `treatmentLog`/`medications` entries are appended; `costs` replaces the list and `totalCost` is recomputed. |
-| `bulk_intake` | Create/update many patients at once from raw CSV or JSON text. Rows are written as-is via `upsert_patient` — no interpretation, so field names must already match the schema below. |
+| `bulk_intake` | Create/update many patients at once from raw CSV or JSON text. Rows are validated against the patient schema (invalid rows are rejected and reported) and written by code — no interpretation, so field names must already match the schema below. |
 
 The `upsert_patient` and `upsert_visit` field names, enums, and the append/replace
 semantics for visit sub-lists come straight from the schemas and workflows in
