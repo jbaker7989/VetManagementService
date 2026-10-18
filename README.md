@@ -82,6 +82,8 @@ To run the MCP server standalone instead (or in addition), see
 | `/api/patients` | GET | List all patients (pet name, species, owner first name only) | Each patient includes a `flagged` boolean |
 | `/api/patients/:id/contact` | GET | Full owner contact details for one patient | Never shown to agent; logged |
 | `/api/visits` | GET | List visits; optionally filter by `?patientId=` | Each visit includes a `flagged` boolean |
+| `/api/veterinarians` | GET | List the clinic's veterinarians | Read from `agent-home/veterinarians.json` on every request |
+| `/api/patients/:id/assign-veterinarian` | POST | Assign, reassign or clear (`null`) a veterinarian for a pet | Staff action from the UI: no LLM, no approval gate; updates the pet's open visit or checks the pet in (needs `reasonForVisit`); serialized so double submits create one visit |
 | `/api/chat` | POST | Stream agent response to a chat message | Session required; rate limited |
 | `/api/upload` | POST | Parse and preview a CSV/JSON file | Session required; rate limited; valid rows never reach the LLM; free text goes to the approval-gated agent |
 | `/api/upload/confirm` | POST | Commit validated intake records | Session required; commits a previewed intake (deterministic, no LLM); single-use `pendingId` |

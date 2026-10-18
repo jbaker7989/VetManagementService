@@ -46,6 +46,7 @@ export async function startTestApp({
   audit,
   limits,
   onPrompt,
+  veterinarians,
 } = {}) {
   const temp = await createTempStore({ patients, visits });
   const sessions = [];
@@ -56,6 +57,7 @@ export async function startTestApp({
     approvals: approvalGate,
     audit,
     limits,
+    veterinarians,
     getSession: async (sessionId, context) => {
       const listeners = new Set();
       const session = { sessionId, prompts: [] };
