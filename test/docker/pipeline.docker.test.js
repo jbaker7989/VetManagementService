@@ -91,7 +91,8 @@ test("Story 6: deployed Compose project starts, serves health, and records the o
   });
 
   await writeFile(composeFile, await readFile(path.join(root, "docker-compose.deploy.yml"), "utf8"));
-  await writeFile(overrideFile, "services:\n  app:\n    ports:\n      - \"127.0.0.1:0:3000\"\n");
+  // !override replaces the base file's fixed 127.0.0.1:3000 mapping instead of adding to it, so a busy port 3000 cannot fail the test.
+  await writeFile(overrideFile, "services:\n  app:\n    ports: !override\n      - \"127.0.0.1:0:3000\"\n");
   await writeFile(envFile, `OPENROUTER_API_KEY=${runId}-dummy\nALLOW_PUBLIC_BIND=true\n`);
   const env = { ...process.env, IMAGE_REPO: testRepo, IMAGE_TAG: "sha-test" };
   docker(["build", "--label", `vet-agent-test=${runId}`, "-t", image, "."]);

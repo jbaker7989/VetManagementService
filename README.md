@@ -269,7 +269,7 @@ npm run restore -- revert <change-id>      # undo one change; refuses if the rec
 ## Testing
 
 ```bash
-npm test                 # 80 tests: unit, integration, injection red-team, workflow and runbook checks (no Docker needed)
+npm test                 # 115 tests: unit, integration, injection red-team, workflow and runbook checks (no Docker needed)
 npm run test:docker      # 15 tests: builds the image, runs it, lints the workflows, rehearses the deploy compose file
                          # (about 1 minute; skips cleanly if no Docker daemon is available)
 ```
