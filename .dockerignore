@@ -1,0 +1,18 @@
+.git
+.github
+.pi
+.claude
+.env
+.env.*
+!.env.example
+node_modules
+docs
+test
+*.md
+tsconfig.json
+Dockerfile
+docker-compose*.yml
+.dockerignore
+# Runtime data lives in the memory volume, never in the image.
+agent-home/memory
+agent-home/sessions

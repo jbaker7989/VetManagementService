@@ -74,10 +74,30 @@ the chat/upload agent (API key in `.env`; see the
 To run the MCP server standalone instead (or in addition), see
 [`agent-home/mcp/SKILL.md`](agent-home/mcp/SKILL.md).
 
+### Docker
+
+```bash
+npm run docker:build             # Build vet-agent-build image
+docker compose up                # Start app at http://127.0.0.1:3000 (reads .env if present;
+                                 # chat needs OPENROUTER_API_KEY in it)
+docker compose down -v           # Stop app and delete data volume (warning: deletes agent-home/memory)
+
+# Hot-reload development:
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+docker logs -f <container>       # Stream logs from the running container
+```
+
+The app binds all container interfaces but the port is published only on
+`127.0.0.1:3000`, because the app has no login. Persistent data (`patients.json`,
+`visits.json`, backups) lives in a named volume `vet-memory` mounted at
+`agent-home/memory`. The healthcheck polls `/health` every 30 seconds (10 second start period) and
+marks the container unhealthy after 3 consecutive failures.
+
 ## HTTP API
 
 | Route | Method | Purpose | Notes |
 |-------|--------|---------|-------|
+| `/health` | GET | Readiness check | Returns `{ "status": "ok" }` (200) if both data files readable, else 503; no data leaked; Host header check applies |
 | `/api/session` | POST | Get or resume a session | Returns `{ sessionId }` |
 | `/api/patients` | GET | List all patients (pet name, species, owner first name only) | Each patient includes a `flagged` boolean |
 | `/api/patients/:id/contact` | GET | Full owner contact details for one patient | Never shown to agent; logged |
@@ -105,8 +125,9 @@ All routes enforce allowed `Host` header (loopback, `HOST` env, or `ALLOWED_HOST
 | `BACKUP_INTERVAL_MS` | `3600000` (1 hr) | Scheduled snapshot interval |
 | `BACKUP_MAX_SNAPSHOTS` | `100` | Maximum point-in-time snapshots kept (oldest pruned first) |
 | `BACKUP_MAX_CHANGES` | `5000` | Maximum entries in change log before rotation |
+| `SHUTDOWN_TIMEOUT_MS` | `10000` (10 s) | Grace period for in-flight requests after SIGTERM/SIGINT before forcing exit |
 
-Env vars are read via `dotenv/config` on startup.
+Env vars are read via `dotenv/config` on startup. See `.env.example` for all variables.
 
 ## Security model at a glance
 
@@ -185,6 +206,39 @@ supported**.
   phrases) are flagged with `"level":"alert"`. Retention and rotation are
   operator-controlled (e.g., via process manager or log shipper).
 
+## Docker and CI/CD
+
+Containerized deployments use Docker and GitHub Actions. The pipeline spans four workflows:
+
+| Event | Workflow | Jobs | Result |
+|-------|----------|------|--------|
+| PR to `main` | `ci.yml` | `test` (`npm test`) + `docker` (`npm run test:docker`) | Blocks merge if failing |
+| Push to `main` | `cd.yml` | CI + `publish` to ghcr.io | Tags: `sha-<short>` (immutable) and `latest`; then deploys the `sha-` tag to staging (no-op until `DEPLOY_HOST` is set) |
+| Push `v*` release tag | `cd.yml` | CI + `publish` to ghcr.io | Tags: `1.2.3` and `1.2` (semver); no deploy |
+| Manual dispatch | `production.yml` | Deploy a chosen published tag | Requires approval in GitHub environment; gated by required reviewers |
+
+Staging and production both run `deploy.yml`, which (if configured) SSHes to a VM, pulls the
+published image, runs `docker compose -f docker-compose.deploy.yml up -d --wait`, and smoke-tests
+`$APP_URL/health`. On failure, it reverts to the previous tag (saved in `.previous-tag`) when one
+exists, then opens a GitHub issue titled "Deploy failed: <env> <tag>" with the run link.
+
+**One-time GitHub setup** (Settings → Branches, Environments, Secrets, Variables):
+- Create two environments: `staging` and `production`. On `production`, enable **Required reviewers**.
+- Per environment, set `DEPLOY_HOST`, `DEPLOY_USER`, `APP_URL` (variables) and `DEPLOY_SSH_KEY`,
+  `DEPLOY_KNOWN_HOSTS` (secrets); do **not** store `OPENROUTER_API_KEY` (it lives only on the VM's `.env`).
+- On `main` branch protection, require the `test` and `docker` checks.
+- CI/CD uses the built-in `GITHUB_TOKEN` for ghcr.io (no registry secret); the package must be readable by this repository (see the runbook).
+
+**Not yet exercised on GitHub:** none of these workflows has run there. The ghcr.io push, the required-check names, and the whole SSH deploy, rollback and issue path are verified only by `actionlint` and local tests.
+
+**Known limits:**
+- Single replica: data lives in JSON files on one volume.
+- Image size ≈566 MB (budget 650 MB; node:24-slim is ~261 MB, prod deps ~178 MB). Original 200 MB
+  target was dropped due to dependency footprint.
+- No lint step exists (code style checks are not automated yet).
+
+For details, see [`docs/devops/`](docs/devops/): feature spec and architecture, board, and production runbook.
+
 ## Backups and recovery
 
 Every change to `patients.json` or `visits.json` (from approved chat/intake actions,
@@ -214,9 +268,14 @@ npm run restore -- revert <change-id>      # undo one change; refuses if the rec
 
 ## Testing
 
-Run `npm test` with Node.js 24 to execute the built-in Node test suite.
-The smoke tests use a temporary data store and a stub agent session, so they
-do not require API keys or modify clinic data.
+```bash
+npm test                 # 115 tests: unit, integration, injection red-team, workflow and runbook checks (no Docker needed)
+npm run test:docker      # 15 tests: builds the image, runs it, lints the workflows, rehearses the deploy compose file
+                         # (about 1 minute; skips cleanly if no Docker daemon is available)
+```
+
+CI runs both. Unit and integration tests use a temporary data store and stub
+agent session, so they do not require API keys or modify clinic data.
 
 ## About the author
 

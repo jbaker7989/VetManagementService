@@ -1,0 +1,12 @@
+# Hot reload: docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# A directory bind mount (not develop.watch) works with plain `up` on macOS and Linux.
+# The anonymous volume keeps the image's node_modules; after changing dependencies,
+# rebuild with `docker compose ... up --build --renew-anon-volumes`.
+services:
+  app:
+    command: ["node", "--watch", "server.js"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - .:/app
+      - /app/node_modules
