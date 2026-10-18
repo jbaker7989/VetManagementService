@@ -1,0 +1,27 @@
+[
+  {
+    "id": "vet-001",
+    "name": "Dr. Priya Nair",
+    "specialty": "General practice"
+  },
+  {
+    "id": "vet-002",
+    "name": "Dr. Mateo Rivera",
+    "specialty": "Soft tissue surgery"
+  },
+  {
+    "id": "vet-003",
+    "name": "Dr. Amina Okafor",
+    "specialty": "Dentistry"
+  },
+  {
+    "id": "vet-004",
+    "name": "Dr. Daniel Kim",
+    "specialty": "Internal medicine"
+  },
+  {
+    "id": "vet-005",
+    "name": "Dr. Sofia Alvarez",
+    "specialty": "Exotic companion animals"
+  }
+]
