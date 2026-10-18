@@ -1,0 +1,27 @@
+# Runs the published image on the deploy VM; the dev stack in docker-compose.yml builds locally instead.
+# Standalone rather than layered on docker-compose.yml: an override cannot drop that file's `build:`
+# without Compose's `!reset` tag, and the VM would then also need the build context.
+name: vet-agent
+
+services:
+  app:
+    image: ghcr.io/${IMAGE_REPO:?}:${IMAGE_TAG:?}
+    init: true
+    # Holds OPENROUTER_API_KEY and ALLOWED_HOSTS; created once on the VM (see docs/devops/production-runbook.md).
+    env_file: .env
+    environment:
+      # Bind all container interfaces; the host-side publish below is what limits exposure.
+      HOST: 0.0.0.0
+      ALLOW_PUBLIC_BIND: "true"
+    ports:
+      # Loopback only: the app has no login. An authenticating reverse proxy on the VM fronts it.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - vet-memory:/app/agent-home/memory
+    # The image's own HEALTHCHECK is used (what `up --wait` waits on).
+    restart: unless-stopped
+    # Above the app's 10s SHUTDOWN_TIMEOUT_MS so it can finish before SIGKILL.
+    stop_grace_period: 15s
+
+volumes:
+  vet-memory:

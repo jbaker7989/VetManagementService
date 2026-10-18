@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vet Agent Build — Docker & CI/CD Architecture</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --text: #1e293b;
+      --heading: #003366;
+      --accent: #c60000;
+      --card: #ffffff;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      margin: 0;
+      padding: 0;
+    }
+    header {
+      background: var(--heading);
+      color: white;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+    header h1 { margin: 0; font-size: 2rem; }
+    header p { margin: 0.5rem 0 0; opacity: 0.9; }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+    h2 {
+      color: var(--heading);
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 0.4rem;
+      margin-top: 2.5rem;
+    }
+    .diagram {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      overflow-x: auto;
+    }
+    .note {
+      background: #fffbeb;
+      border-left: 4px solid #f59e0b;
+      padding: 1rem 1.2rem;
+      border-radius: 0 6px 6px 0;
+      margin: 1rem 0;
+    }
+    .note strong { color: #92400e; }
+    ul { padding-left: 1.2rem; }
+    li { margin: 0.35rem 0; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .card h3 { margin-top: 0; color: var(--heading); }
+    code {
+      background: #f1f5f9;
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.9em;
+    }
+    footer {
+      text-align: center;
+      color: #64748b;
+      font-size: 0.9rem;
+      padding: 2rem 1rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Vet Agent Build — Docker &amp; CI/CD Architecture</h1>
+    <p>Containerized runtime and automated delivery pipeline review</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Architecture Overview</h2>
+      <p>
+        The proposed architecture containerizes the Node.js/Express application and introduces
+        a GitHub Actions-based CI/CD pipeline. The application image is built once, published
+        to a container registry, and deployed to staging and production environments.
+        Persistent clinic data lives on a host-mounted volume outside the container.
+      </p>
+    </section>
+
+    <section>
+      <h2>1. CI/CD Pipeline</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    subgraph Dev["Developer Workflow"]
+        A[Developer pushes code<br/>or opens PR]
+    end
+
+    subgraph GitHub["GitHub Repository"]
+        B[Pull Request]
+        C[Merge to main]
+    end
+
+    subgraph Actions["GitHub Actions"]
+        D[Checkout code]
+        E[Install dependencies]
+        F[Lint &amp; test]
+        G[Build Docker image]
+        H[Push image to registry]
+    end
+
+    subgraph Registry["Container Registry"]
+        I[vet-agent-build:&lt;sha&gt;]
+        J[vet-agent-build:latest]
+    end
+
+    subgraph Deploy["Deployment Targets"]
+        K[Staging Environment]
+        L[Production Environment]
+    end
+
+    A --> B
+    A --> C
+    B --> D --> E --> F --> G
+    C --> D --> E --> F --> G --> H
+    H --> I --> J
+    I --> K
+    J -- "Manual trigger /<br/>release tag" --> L
+        </pre>
+      </div>
+      <div class="note">
+        <strong>Note:</strong> Pull requests build the image for validation but do not push to the registry.
+        Merges to <code>main</code> publish a new image and deploy to staging. Production deployment is
+        triggered manually or by a release tag.
+      </div>
+    </section>
+
+    <section>
+      <h2>2. Container Runtime Architecture</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart TB
+    subgraph Host["Host / VM / Node"]
+        subgraph Docker["Docker Runtime"]
+            App[&quot;vet-agent-build container<br/>(Node.js + Express + pi agent)&quot;]
+            App -->|writes/reads| Vol[(&quot;Named volume<br/>agent-memory&quot;)]
+        end
+        Env[(&quot;.env / secrets&quot;)]
+    end
+
+    User[(&quot;Clinic staff / MCP client&quot;)] -->|HTTP / MCP| App
+    App -->|LLM API calls| LLM[(&quot;OpenRouter / Anthropic&quot;)]
+    Vol -->|maps to| Disk[(&quot;host disk<br/>agent-home/memory/&quot;)]
+
+    style App fill:#e0f2fe,stroke:#0369a1
+    style Vol fill:#dcfce7,stroke:#15803d
+    style LLM fill:#fef3c7,stroke:#b45309
+        </pre>
+      </div>
+      <p>
+        The application runs as a non-root user inside a minimal Node.js container. Clinic data
+        is persisted on the host via a named volume so it survives container restarts and updates.
+        API keys and other secrets are injected at runtime via environment variables.
+      </p>
+    </section>
+
+    <section>
+      <h2>3. Data Flow</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as User / MCP Client
+    participant A as Express App (Container)
+    participant L as LLM Provider
+    participant S as JSON Store (Volume)
+
+    U->>A: POST /api/chat or /api/upload
+    A->>S: Read patients/visits
+    A->>L: Prompt + context
+    L-->>A: Response / tool call request
+    alt Tool call (e.g., upsert_patient)
+        A->>S: Write updated record
+    end
+    A-->>U: Chat response / NDJSON stream
+        </pre>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. Key Components</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Application Container</h3>
+          <ul>
+            <li>Node.js LTS base image</li>
+            <li>Non-root user</li>
+            <li>Multi-stage or minimal production layer</li>
+            <li>Health check on <code>/health</code></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Container Registry</h3>
+          <ul>
+            <li>GitHub Container Registry (default)</li>
+            <li>Tags: commit SHA, branch, <code>latest</code></li>
+            <li>Release tags produce semantic versions</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Data Persistence</h3>
+          <ul>
+            <li>Named volume for <code>agent-home/memory/</code></li>
+            <li>Backup runbook before deployments</li>
+            <li>Single-replica constraint documented</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Secrets Management</h3>
+          <ul>
+            <li>GitHub Secrets for CI/CD</li>
+            <li>Runtime <code>.env</code> or orchestrator secrets</li>
+            <li>No secrets baked into image</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>5. Security &amp; Operations Considerations</h2>
+      <div class="diagram">
+        <ul>
+          <li><strong>Non-root container:</strong> The application runs as an unprivileged user to limit blast radius if compromised.</li>
+          <li><strong>Secret isolation:</strong> API keys are injected at runtime, not committed or built into images.</li>
+          <li><strong>Data volume:</strong> Patient/visit JSON files live on the host via a volume, not inside the container layer.</li>
+          <li><strong>Single-replica warning:</strong> The current JSON-file store is not safe for multi-replica deployments. Scale horizontally only after migrating to a real database.</li>
+          <li><strong>Health checks:</strong> A <code>/health</code> endpoint lets orchestrators restart unhealthy containers.</li>
+          <li><strong>Graceful shutdown:</strong> The app handles <code>SIGTERM</code> to close the HTTP server and flush in-flight writes.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section>
+      <h2>6. Deployment Environments</h2>
+      <div class="diagram">
+        <pre class="mermaid">
+flowchart LR
+    subgraph Registry["Container Registry"]
+        A[vet-agent-build:abc123]
+        B[vet-agent-build:latest]
+    end
+
+    subgraph Staging["Staging"]
+        C[Single container<br/>smoke tests]
+    end
+
+    subgraph Production["Production"]
+        D[Single container<br/>manual rollback ready]
+    end
+
+    Registry --> Staging
+    Registry --> Production
+
+    style Staging fill:#e0f2fe,stroke:#0369a1
+    style Production fill:#fee2e2,stroke:#b91c1c
+        </pre>
+      </div>
+      <div class="note">
+        <strong>Deployment policy:</strong> Staging is updated automatically on every merge to <code>main</code>.
+        Production requires a manual trigger or a release tag, with a documented rollback procedure
+        using a previously published image tag.
+      </div>
+    </section>
+
+    <section>
+      <h2>7. Related Deliverables</h2>
+      <div class="diagram">
+        <ul>
+          <li><strong>Feature &amp; Stories:</strong> <code>docs/devops/docker-cicd-feature-and-stories.md</code></li>
+          <li><strong>Executive Summary:</strong> <code>docs/security/prompt-injection-executive-summary.md</code></li>
+          <li><strong>Prompt Injection Feature:</strong> <code>docs/security/prompt-injection-feature-and-stories.md</code></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    Vet Agent Build — Docker &amp; CI/CD Architecture Review | 2025-01-21
+  </footer>
+
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+  </script>
+</body>
+</html>

@@ -12,7 +12,9 @@ import { createStreamScrubber } from "./lib/outputFilter.js";
 import { createPendingStore } from "./lib/pendingStore.js";
 import { createRateLimiter } from "./lib/rateLimiter.js";
 import { createRequestGuard, defaultAllowedHosts } from "./lib/requestGuard.js";
+import { log, logError } from "./lib/log.js";
 import { createSessionRegistry } from "./lib/sessionRegistry.js";
+import { installShutdown } from "./lib/shutdown.js";
 import { assertSafeAgentSettings, resolveListenHost } from "./lib/startupChecks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -89,6 +91,18 @@ export function createApp({
   }
 
   app.use(createRequestGuard({ allowedHosts }));
+
+  // Liveness + readiness for orchestrators: ok only if both data files are readable and parse.
+  // Returns no data and no error details; the Host check above still applies.
+  app.get("/health", async (_req, res) => {
+    try {
+      await Promise.all([dataStore.listPatients(), dataStore.listVisits()]);
+      res.json({ status: "ok" });
+    } catch {
+      res.status(503).json({ status: "unavailable" });
+    }
+  });
+
   app.use(express.json({ limit: MAX_UPLOAD_BYTES }));
   app.use(express.static(path.join(__dirname, "public")));
 
@@ -260,14 +274,19 @@ export function createApp({
   return app;
 }
 
-export function start({ snapshotIntervalMs = Number(process.env.BACKUP_INTERVAL_MS) || 60 * 60 * 1000 } = {}) {
+export function start({
+  snapshotIntervalMs = Number(process.env.BACKUP_INTERVAL_MS) || 60 * 60 * 1000,
+  shutdownTimeoutMs = Number(process.env.SHUTDOWN_TIMEOUT_MS) || 10 * 1000,
+} = {}) {
   const port = process.env.PORT || 3000;
   const host = resolveListenHost();
   assertSafeAgentSettings();
-  setInterval(() => store.snapshot().catch((err) => console.error(`backup: scheduled snapshot failed: ${err.message}`)), snapshotIntervalMs).unref();
-  return createApp().listen(port, host, () => {
-    console.log(`Vet clinic agent front end running at http://${host}:${port}`);
+  setInterval(() => store.snapshot().catch((err) => logError(`backup: scheduled snapshot failed: ${err.message}`)), snapshotIntervalMs).unref();
+  const server = createApp().listen(port, host, () => {
+    log(`Vet clinic agent front end running at http://${host}:${port}`);
   });
+  installShutdown(server, { snapshot: () => store.snapshot(), timeoutMs: shutdownTimeoutMs });
+  return server;
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) start();

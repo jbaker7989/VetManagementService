@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    init: true
+    # Optional so `docker compose config/up` works without a .env; chat needs OPENROUTER_API_KEY in it.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Bind all container interfaces; the host-side publish below is what limits exposure.
+      HOST: 0.0.0.0
+      ALLOW_PUBLIC_BIND: "true"
+    ports:
+      # Loopback only: the app has no login, so never publish it on 0.0.0.0.
+      # To serve a LAN, front it with an authenticating proxy and add its hostname to ALLOWED_HOSTS.
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - vet-memory:/app/agent-home/memory
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+    # Above the app's 10s SHUTDOWN_TIMEOUT_MS so it can finish before SIGKILL.
+    stop_grace_period: 15s
+
+volumes:
+  vet-memory:
