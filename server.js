@@ -5,6 +5,7 @@ import express from "express";
 
 import { approvalGate, getOrCreateSession, IDLE_TTL_MS, store } from "./lib/agentSession.js";
 import { createAudit } from "./lib/audit.js";
+import { assignVeterinarian } from "./lib/assignment.js";
 import { findInstructionLike } from "./lib/injectionDetector.js";
 import { buildTextIntakePrompt, commitIntake, MAX_UPLOAD_BYTES, parseUpload, planIntake, previewIntake, sanitizeFilename } from "./lib/intake.js";
 import { summarizePatient } from "./lib/modelViews.js";
@@ -16,6 +17,7 @@ import { log, logError } from "./lib/log.js";
 import { createSessionRegistry } from "./lib/sessionRegistry.js";
 import { installShutdown } from "./lib/shutdown.js";
 import { assertSafeAgentSettings, resolveListenHost } from "./lib/startupChecks.js";
+import { createVeterinarianRoster } from "./lib/veterinarians.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 function openStream(res, sessionId) {
@@ -44,6 +46,7 @@ export function createApp({
   sessions = createSessionRegistry({ idleMs: IDLE_TTL_MS }),
   audit = createAudit(),
   limits = DEFAULT_LIMITS,
+  veterinarians = createVeterinarianRoster(),
 } = {}) {
   const app = express();
 
@@ -144,6 +147,30 @@ export function createApp({
       res.json(filtered.map((v) => ({ ...v, flagged: flagged(v) })));
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Only errors flagged `expose` show their message to the client; everything else is logged and sent generically.
+  const failVeterinarianRequest = (res, err) => {
+    if (err.cause || !err.expose) console.error(`veterinarians: ${err.message}${err.cause ? ` (${err.cause.message})` : ""}`);
+    res.status(err.status ?? 500).json({ error: err.expose ? err.message : "Internal server error" });
+  };
+
+  app.get("/api/veterinarians", async (_req, res) => {
+    try {
+      res.json(await veterinarians.list());
+    } catch (err) {
+      failVeterinarianRequest(res, err);
+    }
+  });
+
+  // --- Staff action: picking a vet in the UI is human-initiated, so it skips the agent and the approval gate ---
+
+  app.post("/api/patients/:id/assign-veterinarian", async (req, res) => {
+    try {
+      res.json(await assignVeterinarian({ dataStore, roster: veterinarians, patientId: req.params.id, input: req.body, context: { source: "ui" } }));
+    } catch (err) {
+      failVeterinarianRequest(res, err);
     }
   });
 

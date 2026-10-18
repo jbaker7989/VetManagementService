@@ -334,14 +334,24 @@ cancelBtn.addEventListener("click", () => {
 
 // ---------- Patients list ----------
 
-async function refreshPatients() {
+// notice: { patientId, message } of a just-saved assignment, shown on that pet's row after the reload.
+async function refreshPatients(notice) {
   try {
-    const res = await fetch("/api/patients");
-    const patients = await res.json();
-    renderPatients(patients);
+    const [patients, visits, roster] = await Promise.all([
+      fetchJson("/api/patients"),
+      fetchJson("/api/visits").catch(() => null),
+      fetchJson("/api/veterinarians").catch(() => null),
+    ]);
+    renderPatients(patients, visits, roster, notice);
   } catch {
     patientsList.innerHTML = `<p class="empty-hint">Couldn't load patients.</p>`;
   }
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} failed`);
+  return res.json();
 }
 
 function speciesEmoji(species) {
@@ -349,27 +359,98 @@ function speciesEmoji(species) {
   return map[(species || "").toLowerCase()] || "🐾";
 }
 
-function renderPatients(patients) {
+// The most recent visit that is not closed; the server stores visits oldest first.
+const openVisitFor = (visits, patientId) => visits.findLast((v) => v.patientId === patientId && v.status !== "closed");
+
+// Select value for a vet name set outside the roster (e.g. by the chat agent); saving it changes nothing.
+function vetSelect(roster, label, selectedName) {
+  const offRoster = selectedName && !roster.some((v) => v.name === selectedName);
+  const options = (offRoster ? `<option value="__unchanged__" selected>${escapeHtml(selectedName)} (not on roster)</option>` : "") + roster
+    .map((v) => `<option value="${escapeHtml(v.id)}"${v.name === selectedName ? " selected" : ""}>${escapeHtml(v.name)}</option>`)
+    .join("");
+  return `<select aria-label="${escapeHtml(label)}"><option value="">Unassigned</option>${options}</select>`;
+}
+
+async function assignVeterinarian(form, patient, roster) {
+  const status = form.querySelector(".assign-status");
+  const button = form.querySelector("button");
+  const reason = form.querySelector("input");
+  const veterinarianId = form.querySelector("select").value || null;
+  if (veterinarianId === "__unchanged__") {
+    status.className = "assign-status";
+    status.textContent = "Choose a veterinarian from the roster to replace this name";
+    return;
+  }
+  if (form.querySelector("select").selectedOptions[0].defaultSelected) {
+    status.className = "assign-status";
+    status.textContent = "No change to save";
+    return;
+  }
+  button.disabled = true;
+  status.className = "assign-status";
+  status.textContent = "Saving…";
+  try {
+    const res = await fetch(`/api/patients/${encodeURIComponent(patient.id)}/assign-veterinarian`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "vet-agent" },
+      body: JSON.stringify({ veterinarianId, ...(reason && { reasonForVisit: reason.value }) }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error);
+    const vet = roster.find((v) => v.id === veterinarianId);
+    await refreshPatients({ patientId: patient.id, message: vet ? `Assigned ${vet.name} to ${patient.name}` : `Cleared the veterinarian for ${patient.name}` });
+  } catch (err) {
+    status.className = "assign-status error";
+    status.textContent = err.message;
+    button.disabled = false;
+  }
+}
+
+function renderPatients(patients, visits, roster, notice) {
   if (!patients.length) {
     patientsList.innerHTML = `<p class="empty-hint">No patients on file yet.</p>`;
     return;
   }
-  patientsList.innerHTML = "";
+  const degraded = !visits || !roster;
+  patientsList.innerHTML = degraded ? `<p class="empty-hint" role="status">Veterinarian list unavailable — assignment disabled</p>` : "";
   patients
     .slice()
     .reverse()
     .forEach((p) => {
       const row = document.createElement("div");
       row.className = "patient-row";
+      row.dataset.patientId = p.id;
+      const visit = visits && openVisitFor(visits, p.id);
+      const care = !visits
+        ? ""
+        : visit
+        ? `<div class="care">${escapeHtml(visit.reasonForVisit || "Visit")} · ${escapeHtml(visit.status)} · ${escapeHtml(visit.assignedVeterinarian || "Unassigned")}</div>`
+        : `<div class="care">No open visit</div>`;
+      let assign = visit
+        ? `${vetSelect(roster, `Veterinarian for ${p.name}`, visit.assignedVeterinarian)}<button class="ghost-btn" type="submit">Save</button>`
+        : `<input type="text" required maxlength="1000" placeholder="Reason for visit" aria-label="Reason for visit for ${escapeHtml(p.name)}" />${vetSelect(roster, `Veterinarian for ${p.name}`, null)}<button class="ghost-btn" type="submit">Check in for care</button>`;
+      assign = degraded ? "" : `<form class="assign-form">${assign}<div class="assign-status" role="status"></div></form>`;
       row.innerHTML = `
         <div class="avatar">${speciesEmoji(p.species)}</div>
         <div class="info">
           <div class="name">${escapeHtml(p.name)}${p.flagged ? ' <span class="risk-flag" title="Contains text that looks like instructions to the AI agent. Review this record.">⚠ review</span>' : ""}</div>
           <div class="meta">${escapeHtml(p.species || "")} · ${escapeHtml(p.ownerFirstName || "no owner on file")}</div>
+          ${care}
           <div class="contact" hidden></div>
+          ${assign}
         </div>
-        <button class="ghost-btn" type="button">Show contact info</button>`;
-      row.querySelector("button").addEventListener("click", (e) => toggleContact(p.id, e.currentTarget, row.querySelector(".contact")));
+        <button class="ghost-btn contact-btn" type="button">Show contact info</button>`;
+      row.querySelector(".contact-btn").addEventListener("click", (e) => toggleContact(p.id, e.currentTarget, row.querySelector(".contact")));
+      const form = row.querySelector(".assign-form");
+      if (form && notice?.patientId === p.id) {
+        const status = form.querySelector(".assign-status");
+        status.classList.add("success");
+        status.textContent = notice.message;
+      }
+      form?.addEventListener("submit", (e) => {
+        e.preventDefault();
+        assignVeterinarian(form, p, roster);
+      });
       patientsList.appendChild(row);
     });
 }
@@ -397,7 +478,7 @@ function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-refreshBtn.addEventListener("click", refreshPatients);
+refreshBtn.addEventListener("click", () => refreshPatients());
 
 // ---------- Pending agent changes (approval gate) ----------
 
